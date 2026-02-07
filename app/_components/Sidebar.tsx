@@ -71,7 +71,7 @@ export default function Sidebar() {
             gap: 1,
           }}
         >
-          <MenuBook /> LibraryE
+          <MenuBook /> Liber
         </Typography>
         <Chip
           label={userRole}
@@ -82,8 +82,8 @@ export default function Sidebar() {
               userRole === "Admin"
                 ? "#e74c3c"
                 : userRole === "Librarian"
-                ? "#3498db"
-                : "#95a5a6",
+                  ? "#3498db"
+                  : "#95a5a6",
             color: "white",
             fontSize: 11,
           }}
