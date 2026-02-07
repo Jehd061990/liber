@@ -81,7 +81,7 @@ export interface User {
 }
 
 // Dashboard Stats
-export interface DashboardStats {
+export interface MainDashboardStats {
   totalBooks: number;
   activeReaders: number;
   borrowedBooks: number;

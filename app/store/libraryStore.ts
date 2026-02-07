@@ -6,7 +6,7 @@ import {
   Fine,
   Reservation,
   UserRole,
-  DashboardStats,
+  MainDashboardStats,
 } from "../types/library";
 
 interface LibraryState {
@@ -31,7 +31,7 @@ interface LibraryState {
 
   // Actions
   setCurrentUser: (
-    user: { id: string; name: string; role: UserRole } | null
+    user: { id: string; name: string; role: UserRole } | null,
   ) => void;
   setCurrentView: (view: string) => void;
   setSearchQuery: (query: string) => void;
@@ -59,8 +59,8 @@ interface LibraryState {
   addFine: (fine: Fine) => void;
   payFine: (fineId: string) => void;
 
-  // Dashboard
-  getDashboardStats: () => DashboardStats;
+  // MainDashboard
+  getMainDashboardStats: () => MainDashboardStats;
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
@@ -75,7 +75,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   borrowRecords: [],
   fines: [],
   reservations: [],
-  currentView: "dashboard",
+  currentView: "MainDashboard",
   searchQuery: "",
   selectedCategory: null,
 
@@ -90,7 +90,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   updateBook: (id, updatedBook) =>
     set((state) => ({
       books: state.books.map((book) =>
-        book.id === id ? { ...book, ...updatedBook } : book
+        book.id === id ? { ...book, ...updatedBook } : book,
       ),
     })),
   deleteBook: (id) =>
@@ -104,7 +104,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   updateReader: (id, updatedReader) =>
     set((state) => ({
       readers: state.readers.map((reader) =>
-        reader.id === id ? { ...reader, ...updatedReader } : reader
+        reader.id === id ? { ...reader, ...updatedReader } : reader,
       ),
     })),
   deleteReader: (id) =>
@@ -136,7 +136,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set((state) => ({
       borrowRecords: [...state.borrowRecords, borrowRecord],
       books: state.books.map((b) =>
-        b.id === bookId ? { ...b, availableCopies: b.availableCopies - 1 } : b
+        b.id === bookId ? { ...b, availableCopies: b.availableCopies - 1 } : b,
       ),
     }));
   },
@@ -154,7 +154,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (isOverdue) {
       const daysOverdue = Math.floor(
         (returnDate.getTime() - record.dueDate.getTime()) /
-          (1000 * 60 * 60 * 24)
+          (1000 * 60 * 60 * 24),
       );
       const fineAmount = daysOverdue * 1; // $1 per day
 
@@ -177,12 +177,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       borrowRecords: state.borrowRecords.map((r) =>
         r.id === borrowRecordId
           ? { ...r, returnDate, status: "Returned" as const }
-          : r
+          : r,
       ),
       books: state.books.map((b) =>
         b.id === record.bookId
           ? { ...b, availableCopies: b.availableCopies + 1 }
-          : b
+          : b,
       ),
     }));
   },
@@ -191,7 +191,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   reserveBook: (bookId, readerId) => {
     const state = get();
     const existingReservations = state.reservations.filter(
-      (r) => r.bookId === bookId && r.status === "Pending"
+      (r) => r.bookId === bookId && r.status === "Pending",
     );
 
     const reservation: Reservation = {
@@ -211,7 +211,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   cancelReservation: (reservationId) =>
     set((state) => ({
       reservations: state.reservations.map((r) =>
-        r.id === reservationId ? { ...r, status: "Cancelled" as const } : r
+        r.id === reservationId ? { ...r, status: "Cancelled" as const } : r,
       ),
     })),
 
@@ -222,12 +222,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       fines: state.fines.map((f) =>
         f.id === fineId
           ? { ...f, status: "Paid" as const, paidDate: new Date() }
-          : f
+          : f,
       ),
     })),
 
-  // Dashboard Stats
-  getDashboardStats: () => {
+  // MainDashboard Stats
+  getMainDashboardStats: () => {
     const state = get();
     return {
       totalBooks: state.books.length,
@@ -235,13 +235,13 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       borrowedBooks: state.borrowRecords.filter((r) => r.status === "Active")
         .length,
       overdueBooks: state.borrowRecords.filter(
-        (r) => r.status === "Active" && new Date() > r.dueDate
+        (r) => r.status === "Active" && new Date() > r.dueDate,
       ).length,
       totalFines: state.fines
         .filter((f) => f.status === "Unpaid")
         .reduce((sum, f) => sum + f.amount, 0),
       pendingReservations: state.reservations.filter(
-        (r) => r.status === "Pending"
+        (r) => r.status === "Pending",
       ).length,
     };
   },

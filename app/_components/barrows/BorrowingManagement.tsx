@@ -25,7 +25,7 @@ import {
   LibraryBooks,
 } from "@mui/icons-material";
 import { useState } from "react";
-import { useLibraryStore } from "../store/libraryStore";
+import { useLibraryStore } from "@/app/store/libraryStore";
 import BorrowBookDialog from "./BorrowBookDialog";
 
 export default function BorrowingManagement() {

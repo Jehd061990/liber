@@ -9,7 +9,7 @@ import {
   TrendingUp,
   AttachMoney,
 } from "@mui/icons-material";
-import { useLibraryStore } from "../store/libraryStore";
+import { useLibraryStore } from "@/app/store/libraryStore";
 
 interface StatCardProps {
   title: string;
@@ -76,9 +76,9 @@ function StatCard({ title, value, icon, color, subtitle }: StatCardProps) {
   );
 }
 
-export default function Dashboard() {
-  const { getDashboardStats, books, borrowRecords } = useLibraryStore();
-  const stats = getDashboardStats();
+export default function MainDashboard() {
+  const { getMainDashboardStats, books, borrowRecords } = useLibraryStore();
+  const stats = getMainDashboardStats();
 
   // Calculate additional metrics
   const borrowRate =
@@ -100,7 +100,7 @@ export default function Dashboard() {
       {/* Header */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-          Dashboard
+          MainDashboard
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Library management system overview

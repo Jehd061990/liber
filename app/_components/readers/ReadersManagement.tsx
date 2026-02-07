@@ -17,6 +17,7 @@ import {
   InputAdornment,
   Menu,
   MenuItem,
+  Avatar,
 } from "@mui/material";
 import {
   Add,
@@ -25,58 +26,71 @@ import {
   Search,
   MoreVert,
   FilterList,
+  PersonAdd,
 } from "@mui/icons-material";
 import { useState } from "react";
-import { useLibraryStore } from "../store/libraryStore";
-import AddBookDialog from "./AddBookDialog";
+import { useLibraryStore } from "@/app/store/libraryStore";
+import AddReaderDialog from "./AddReaderDialog";
 
-export default function BooksManagement() {
-  const { books, deleteBook } = useLibraryStore();
+export default function ReadersManagement() {
+  const { readers, deleteReader } = useLibraryStore();
   const [openAddDialog, setOpenAddDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [selectedBook, setSelectedBook] = useState<string | null>(null);
+  const [selectedReader, setSelectedReader] = useState<string | null>(null);
 
   const handleMenuOpen = (
     event: React.MouseEvent<HTMLElement>,
-    bookId: string
+    readerId: string,
   ) => {
     setAnchorEl(event.currentTarget);
-    setSelectedBook(bookId);
+    setSelectedReader(readerId);
   };
 
   const handleMenuClose = () => {
     setAnchorEl(null);
-    setSelectedBook(null);
+    setSelectedReader(null);
   };
 
   const handleDelete = () => {
-    if (selectedBook) {
-      deleteBook(selectedBook);
+    if (selectedReader) {
+      deleteReader(selectedReader);
       handleMenuClose();
     }
   };
 
-  const filteredBooks = books.filter(
-    (book) =>
-      book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      book.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      book.isbn.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredReaders = readers.filter(
+    (reader) =>
+      reader.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      reader.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      reader.readerId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      reader.studentId?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case "Available":
-        return "success";
-      case "Borrowed":
-        return "warning";
-      case "Reserved":
+    return status === "Active" ? "success" : "error";
+  };
+
+  const getMembershipColor = (type: string) => {
+    switch (type) {
+      case "Student":
+        return "primary";
+      case "Teacher":
+        return "secondary";
+      case "Staff":
         return "info";
-      case "Lost":
-        return "error";
       default:
         return "default";
     }
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   return (
@@ -92,24 +106,24 @@ export default function BooksManagement() {
       >
         <Box>
           <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-            Books Management
+            Readers Management
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Manage your library collection
+            Manage library members and their information
           </Typography>
         </Box>
         <Button
           variant="contained"
-          startIcon={<Add />}
+          startIcon={<PersonAdd />}
           onClick={() => setOpenAddDialog(true)}
           sx={{
-            bgcolor: "#3498db",
+            bgcolor: "#27ae60",
             "&:hover": {
-              bgcolor: "#2980b9",
+              bgcolor: "#229954",
             },
           }}
         >
-          Add New Book
+          Register Reader
         </Button>
       </Box>
 
@@ -118,7 +132,7 @@ export default function BooksManagement() {
         <Box sx={{ display: "flex", gap: 2 }}>
           <TextField
             fullWidth
-            placeholder="Search by title, author, or ISBN..."
+            placeholder="Search by name, email, reader ID, or student ID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             InputProps={{
@@ -143,50 +157,50 @@ export default function BooksManagement() {
       <Box sx={{ display: "flex", gap: 2, mb: 3 }}>
         <Paper elevation={1} sx={{ p: 2, flex: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            Total Books
+            Total Readers
           </Typography>
           <Typography variant="h4" sx={{ fontWeight: 700, color: "#3498db" }}>
-            {books.length}
+            {readers.length}
           </Typography>
         </Paper>
         <Paper elevation={1} sx={{ p: 2, flex: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            Available
+            Active
           </Typography>
           <Typography variant="h4" sx={{ fontWeight: 700, color: "#27ae60" }}>
-            {books.filter((b) => b.status === "Available").length}
+            {readers.filter((r) => r.status === "Active").length}
           </Typography>
         </Paper>
         <Paper elevation={1} sx={{ p: 2, flex: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            Borrowed
-          </Typography>
-          <Typography variant="h4" sx={{ fontWeight: 700, color: "#f39c12" }}>
-            {books.filter((b) => b.status === "Borrowed").length}
-          </Typography>
-        </Paper>
-        <Paper elevation={1} sx={{ p: 2, flex: 1 }}>
-          <Typography variant="body2" color="text.secondary">
-            Lost
+            Suspended
           </Typography>
           <Typography variant="h4" sx={{ fontWeight: 700, color: "#e74c3c" }}>
-            {books.filter((b) => b.status === "Lost").length}
+            {readers.filter((r) => r.status === "Suspended").length}
+          </Typography>
+        </Paper>
+        <Paper elevation={1} sx={{ p: 2, flex: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            Students
+          </Typography>
+          <Typography variant="h4" sx={{ fontWeight: 700, color: "#9b59b6" }}>
+            {readers.filter((r) => r.membershipType === "Student").length}
           </Typography>
         </Paper>
       </Box>
 
-      {/* Books Table */}
+      {/* Readers Table */}
       <TableContainer component={Paper} elevation={2}>
         <Table>
           <TableHead sx={{ bgcolor: "#f8f9fa" }}>
             <TableRow>
-              <TableCell sx={{ fontWeight: 600 }}>ISBN</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Title</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Author</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Category</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Location</TableCell>
+              <TableCell sx={{ fontWeight: 600 }}>Reader</TableCell>
+              <TableCell sx={{ fontWeight: 600 }}>Reader ID</TableCell>
+              <TableCell sx={{ fontWeight: 600 }}>Student ID</TableCell>
+              <TableCell sx={{ fontWeight: 600 }}>Contact</TableCell>
+              <TableCell sx={{ fontWeight: 600 }}>Membership</TableCell>
               <TableCell sx={{ fontWeight: 600 }} align="center">
-                Copies
+                Borrowing Limit
               </TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
               <TableCell sx={{ fontWeight: 600 }} align="center">
@@ -195,70 +209,89 @@ export default function BooksManagement() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredBooks.length === 0 ? (
+            {filteredReaders.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <Typography variant="body2" color="text.secondary">
                     {searchQuery
-                      ? "No books found matching your search"
-                      : 'No books added yet. Click "Add New Book" to get started.'}
+                      ? "No readers found matching your search"
+                      : 'No readers registered yet. Click "Register Reader" to get started.'}
                   </Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              filteredBooks.map((book) => (
-                <TableRow key={book.id} hover>
-                  <TableCell>{book.isbn}</TableCell>
+              filteredReaders.map((reader) => (
+                <TableRow key={reader.id} hover>
                   <TableCell>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                      {book.coverImage && (
-                        <Box
-                          component="img"
-                          src={book.coverImage}
-                          alt={book.title}
-                          sx={{
-                            width: 40,
-                            height: 60,
-                            objectFit: "cover",
-                            borderRadius: 1,
-                          }}
-                        />
-                      )}
+                      <Avatar
+                        sx={{ bgcolor: "#3498db", width: 40, height: 40 }}
+                      >
+                        {getInitials(reader.name)}
+                      </Avatar>
                       <Box>
                         <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          {book.title}
+                          {reader.name}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {book.publisher}
+                          Registered:{" "}
+                          {new Date(
+                            reader.registrationDate,
+                          ).toLocaleDateString()}
                         </Typography>
                       </Box>
                     </Box>
                   </TableCell>
-                  <TableCell>{book.author}</TableCell>
                   <TableCell>
-                    <Chip
-                      label={book.category}
-                      size="small"
-                      variant="outlined"
-                    />
+                    <Typography
+                      variant="body2"
+                      sx={{ fontFamily: "monospace" }}
+                    >
+                      {reader.readerId}
+                    </Typography>
                   </TableCell>
-                  <TableCell>{book.shelfLocation}</TableCell>
-                  <TableCell align="center">
-                    <Typography variant="body2">
-                      {book.availableCopies} / {book.totalCopies}
+                  <TableCell>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontFamily: "monospace" }}
+                    >
+                      {reader.studentId || "-"}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" sx={{ fontSize: 13 }}>
+                      {reader.email}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {reader.phone}
                     </Typography>
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={book.status}
+                      label={reader.membershipType}
                       size="small"
-                      color={getStatusColor(book.status) as any}
+                      color={getMembershipColor(reader.membershipType) as any}
+                    />
+                  </TableCell>
+                  <TableCell align="center">
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {reader.maxBooks} books
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {reader.borrowDuration} days
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={reader.status}
+                      size="small"
+                      color={getStatusColor(reader.status) as any}
                     />
                   </TableCell>
                   <TableCell align="center">
                     <IconButton
                       size="small"
-                      onClick={(e) => handleMenuOpen(e, book.id)}
+                      onClick={(e) => handleMenuOpen(e, reader.id)}
                     >
                       <MoreVert />
                     </IconButton>
@@ -286,8 +319,8 @@ export default function BooksManagement() {
         </MenuItem>
       </Menu>
 
-      {/* Add Book Dialog */}
-      <AddBookDialog
+      {/* Add Reader Dialog */}
+      <AddReaderDialog
         open={openAddDialog}
         onClose={() => setOpenAddDialog(false)}
       />

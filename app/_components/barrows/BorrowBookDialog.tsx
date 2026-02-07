@@ -27,7 +27,7 @@ import {
   Warning,
 } from "@mui/icons-material";
 import { useState, useEffect } from "react";
-import { useLibraryStore } from "../store/libraryStore";
+import { useLibraryStore } from "@/app/store/libraryStore";
 
 interface BorrowBookDialogProps {
   open: boolean;
@@ -42,7 +42,7 @@ export default function BorrowBookDialog({
   const [selectedBookId, setSelectedBookId] = useState("");
   const [selectedReaderId, setSelectedReaderId] = useState("");
   const [borrowDate, setBorrowDate] = useState(
-    new Date().toISOString().split("T")[0]
+    new Date().toISOString().split("T")[0],
   );
   const [dueDate, setDueDate] = useState("");
   const [error, setError] = useState("");
@@ -60,7 +60,7 @@ export default function BorrowBookDialog({
   // Calculate reader's current borrowed books count
   const readerBorrowedCount = borrowRecords.filter(
     (record) =>
-      record.readerId === selectedReaderId && record.status === "Active"
+      record.readerId === selectedReaderId && record.status === "Active",
   ).length;
 
   // Auto-calculate due date based on reader's membership type
@@ -95,7 +95,7 @@ export default function BorrowBookDialog({
     // Check if reader has reached max books limit
     if (readerBorrowedCount >= selectedReader.maxBooks) {
       setError(
-        `Reader has reached maximum borrowing limit of ${selectedReader.maxBooks} books`
+        `Reader has reached maximum borrowing limit of ${selectedReader.maxBooks} books`,
       );
       return false;
     }

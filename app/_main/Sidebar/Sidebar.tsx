@@ -30,16 +30,16 @@ import {
   AttachMoney,
 } from "@mui/icons-material";
 import { useState } from "react";
-import { useLibraryStore } from "../store/libraryStore";
+import { useLibraryStore } from "@/app/store/libraryStore";
 
 export default function Sidebar() {
-  const { currentView, setCurrentView, currentUser, getDashboardStats } =
+  const { currentView, setCurrentView, currentUser, getMainDashboardStats } =
     useLibraryStore();
   const [booksOpen, setBooksOpen] = useState(false);
   const [readersOpen, setReadersOpen] = useState(false);
   const [borrowingOpen, setBorrowingOpen] = useState(false);
 
-  const stats = getDashboardStats();
+  const stats = getMainDashboardStats();
   const userRole = currentUser?.role || "Reader";
 
   const handleNavigation = (view: string) => {

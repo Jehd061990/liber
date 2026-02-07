@@ -19,8 +19,8 @@ import {
 } from "@mui/material";
 import { Close, Person } from "@mui/icons-material";
 import { useState } from "react";
-import { useLibraryStore } from "../store/libraryStore";
-import { Reader, MembershipType, MemberStatus } from "../types/library";
+import { useLibraryStore } from "@/app/store/libraryStore";
+import { Reader, MembershipType, MemberStatus } from "@/app/types/library";
 
 interface AddReaderDialogProps {
   open: boolean;
@@ -114,7 +114,7 @@ export default function AddReaderDialog({
     }
 
     const borrowingRules = getBorrowingRules(
-      formData.membershipType as MembershipType
+      formData.membershipType as MembershipType,
     );
 
     const newReader: Reader = {

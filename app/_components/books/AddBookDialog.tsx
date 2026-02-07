@@ -19,8 +19,10 @@ import {
 } from "@mui/material";
 import { Close, CloudUpload, QrCode } from "@mui/icons-material";
 import { useState } from "react";
-import { useLibraryStore } from "../store/libraryStore";
-import { Book } from "../types/library";
+// import { useLibraryStore } from "../store/libraryStore";
+// import { Book } from "../types/library";
+import { useLibraryStore } from "@/app/store/libraryStore";
+import { Book } from "@/app/types/library";
 
 interface AddBookDialogProps {
   open: boolean;

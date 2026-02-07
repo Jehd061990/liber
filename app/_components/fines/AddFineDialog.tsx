@@ -18,8 +18,8 @@ import {
 } from "@mui/material";
 import { Close, AttachMoney } from "@mui/icons-material";
 import { useState } from "react";
-import { useLibraryStore } from "../store/libraryStore";
-import { Fine } from "../types/library";
+import { useLibraryStore } from "@/app/store/libraryStore";
+import { Fine } from "@/app/types/library";
 
 interface AddFineDialogProps {
   open: boolean;
