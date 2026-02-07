@@ -5,7 +5,6 @@ import { Typography } from "@mui/material";
 const Books = () => {
   return (
     <>
-      <Typography>Testing</Typography>
       <BooksManagement />
     </>
   );
