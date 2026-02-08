@@ -26,16 +26,60 @@ import {
   MoreVert,
   FilterList,
 } from "@mui/icons-material";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLibraryStore } from "@/app/store/libraryStore";
 import AddBookDialog from "./AddBookDialog";
+import { useQuery } from "@tanstack/react-query";
+import apiClient from "@/app/lib/apiClient";
+import { Book } from "@/app/types/library";
 
 export default function BooksManagement() {
-  const { books, deleteBook } = useLibraryStore();
+  const { books, deleteBook, setBooks, authToken } = useLibraryStore();
   const [openAddDialog, setOpenAddDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedBook, setSelectedBook] = useState<string | null>(null);
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["books", authToken],
+    queryFn: async () => {
+      const response = await apiClient.get("/books");
+      return response.data?.data ?? response.data;
+    },
+    enabled: Boolean(authToken),
+  });
+
+  useEffect(() => {
+    if (!data) return;
+
+    const list = Array.isArray(data) ? data : (data?.books ?? []);
+    const mapped = (list as any[]).map((item, index) => {
+      const totalCopies = Number(item?.totalCopies ?? 1);
+      const availableCopies = Number(
+        item?.availableCopies ?? item?.available ?? totalCopies,
+      );
+
+      return {
+        id: item?.id ?? item?._id ?? item?.isbn ?? `${Date.now()}-${index}`,
+        isbn: item?.isbn ?? "",
+        title: item?.title ?? "",
+        author: item?.author ?? "",
+        publisher: item?.publisher ?? "",
+        category: item?.category ?? "Other",
+        genre: item?.genre ?? "Other",
+        shelfLocation: item?.shelfLocation ?? "",
+        totalCopies: Number.isFinite(totalCopies) ? totalCopies : 1,
+        availableCopies: Number.isFinite(availableCopies) ? availableCopies : 1,
+        status: item?.status ?? "Available",
+        coverImage: item?.coverImage ?? undefined,
+        barcode: item?.barcode ?? undefined,
+        qrCode: item?.qrCode ?? undefined,
+        rating: item?.rating ?? undefined,
+      } as Book;
+    });
+
+    setBooks(mapped);
+  }, [data, setBooks]);
 
   const handleMenuOpen = (
     event: React.MouseEvent<HTMLElement>,
@@ -195,7 +239,31 @@ export default function BooksManagement() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredBooks.length === 0 ? (
+            {!authToken ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Please log in to load books.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : isLoading ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Loading books...
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="error">
+                    Failed to load books. Please try again.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : filteredBooks.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <Typography variant="body2" color="text.secondary">

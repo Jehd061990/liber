@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 import {
   Book,
   Reader,
@@ -16,6 +17,8 @@ interface LibraryState {
     name: string;
     role: UserRole;
   } | null;
+  authToken: string | null;
+  logout: () => void;
 
   // Data
   books: Book[];
@@ -33,12 +36,14 @@ interface LibraryState {
   setCurrentUser: (
     user: { id: string; name: string; role: UserRole } | null,
   ) => void;
+  setAuthToken: (token: string | null) => void;
   setCurrentView: (view: string) => void;
   setSearchQuery: (query: string) => void;
   setSelectedCategory: (category: string | null) => void;
 
   // Book Management
   addBook: (book: Book) => void;
+  setBooks: (books: Book[]) => void;
   updateBook: (id: string, book: Partial<Book>) => void;
   deleteBook: (id: string) => void;
 
@@ -63,186 +68,224 @@ interface LibraryState {
   getMainDashboardStats: () => MainDashboardStats;
 }
 
-export const useLibraryStore = create<LibraryState>((set, get) => ({
-  // Initial state
-  currentUser: {
-    id: "1",
-    name: "Admin User",
-    role: "Admin",
-  },
-  books: [],
-  readers: [],
-  borrowRecords: [],
-  fines: [],
-  reservations: [],
-  currentView: "MainDashboard",
-  searchQuery: "",
-  selectedCategory: null,
+const isTokenExpired = (token: string | null) => {
+  if (!token) return true;
 
-  // Actions
-  setCurrentUser: (user) => set({ currentUser: user }),
-  setCurrentView: (view) => set({ currentView: view }),
-  setSearchQuery: (query) => set({ searchQuery: query }),
-  setSelectedCategory: (category) => set({ selectedCategory: category }),
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
 
-  // Book Management
-  addBook: (book) => set((state) => ({ books: [...state.books, book] })),
-  updateBook: (id, updatedBook) =>
-    set((state) => ({
-      books: state.books.map((book) =>
-        book.id === id ? { ...book, ...updatedBook } : book,
-      ),
-    })),
-  deleteBook: (id) =>
-    set((state) => ({
-      books: state.books.filter((book) => book.id !== id),
-    })),
+  try {
+    const payload = JSON.parse(atob(parts[1]));
+    if (!payload?.exp) return false;
+    const expMs = payload.exp * 1000;
+    return Date.now() >= expMs;
+  } catch {
+    return false;
+  }
+};
 
-  // Reader Management
-  addReader: (reader) =>
-    set((state) => ({ readers: [...state.readers, reader] })),
-  updateReader: (id, updatedReader) =>
-    set((state) => ({
-      readers: state.readers.map((reader) =>
-        reader.id === id ? { ...reader, ...updatedReader } : reader,
-      ),
-    })),
-  deleteReader: (id) =>
-    set((state) => ({
-      readers: state.readers.filter((reader) => reader.id !== id),
-    })),
+export const useLibraryStore = create<LibraryState>()(
+  persist(
+    (set, get) => ({
+      // Initial state
+      currentUser: null,
+      authToken: null,
+      books: [],
+      readers: [],
+      borrowRecords: [],
+      fines: [],
+      reservations: [],
+      currentView: "MainDashboard",
+      searchQuery: "",
+      selectedCategory: null,
 
-  // Borrowing
-  borrowBook: (bookId, readerId) => {
-    const state = get();
-    const book = state.books.find((b) => b.id === bookId);
-    const reader = state.readers.find((r) => r.id === readerId);
+      // Actions
+      setCurrentUser: (user) => set({ currentUser: user }),
+      setAuthToken: (token) => set({ authToken: token }),
+      logout: () => set({ currentUser: null, authToken: null }),
+      setCurrentView: (view) => set({ currentView: view }),
+      setSearchQuery: (query) => set({ searchQuery: query }),
+      setSelectedCategory: (category) => set({ selectedCategory: category }),
 
-    if (!book || !reader || book.availableCopies <= 0) return;
+      // Book Management
+      addBook: (book) => set((state) => ({ books: [...state.books, book] })),
+      setBooks: (books) => set(() => ({ books })),
+      updateBook: (id, updatedBook) =>
+        set((state) => ({
+          books: state.books.map((book) =>
+            book.id === id ? { ...book, ...updatedBook } : book,
+          ),
+        })),
+      deleteBook: (id) =>
+        set((state) => ({
+          books: state.books.filter((book) => book.id !== id),
+        })),
 
-    const borrowDate = new Date();
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + reader.borrowDuration);
+      // Reader Management
+      addReader: (reader) =>
+        set((state) => ({ readers: [...state.readers, reader] })),
+      updateReader: (id, updatedReader) =>
+        set((state) => ({
+          readers: state.readers.map((reader) =>
+            reader.id === id ? { ...reader, ...updatedReader } : reader,
+          ),
+        })),
+      deleteReader: (id) =>
+        set((state) => ({
+          readers: state.readers.filter((reader) => reader.id !== id),
+        })),
 
-    const borrowRecord: BorrowRecord = {
-      id: Date.now().toString(),
-      bookId,
-      readerId,
-      borrowDate,
-      dueDate,
-      status: "Active",
-    };
+      // Borrowing
+      borrowBook: (bookId, readerId) => {
+        const state = get();
+        const book = state.books.find((b) => b.id === bookId);
+        const reader = state.readers.find((r) => r.id === readerId);
 
-    set((state) => ({
-      borrowRecords: [...state.borrowRecords, borrowRecord],
-      books: state.books.map((b) =>
-        b.id === bookId ? { ...b, availableCopies: b.availableCopies - 1 } : b,
-      ),
-    }));
-  },
+        if (!book || !reader || book.availableCopies <= 0) return;
 
-  returnBook: (borrowRecordId) => {
-    const state = get();
-    const record = state.borrowRecords.find((r) => r.id === borrowRecordId);
+        const borrowDate = new Date();
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + reader.borrowDuration);
 
-    if (!record) return;
+        const borrowRecord: BorrowRecord = {
+          id: Date.now().toString(),
+          bookId,
+          readerId,
+          borrowDate,
+          dueDate,
+          status: "Active",
+        };
 
-    const returnDate = new Date();
-    const isOverdue = returnDate > record.dueDate;
+        set((state) => ({
+          borrowRecords: [...state.borrowRecords, borrowRecord],
+          books: state.books.map((b) =>
+            b.id === bookId
+              ? { ...b, availableCopies: b.availableCopies - 1 }
+              : b,
+          ),
+        }));
+      },
 
-    // Calculate fine if overdue
-    if (isOverdue) {
-      const daysOverdue = Math.floor(
-        (returnDate.getTime() - record.dueDate.getTime()) /
-          (1000 * 60 * 60 * 24),
-      );
-      const fineAmount = daysOverdue * 1; // $1 per day
+      returnBook: (borrowRecordId) => {
+        const state = get();
+        const record = state.borrowRecords.find((r) => r.id === borrowRecordId);
 
-      const fine: Fine = {
-        id: Date.now().toString(),
-        borrowRecordId: record.id,
-        readerId: record.readerId,
-        amount: fineAmount,
-        reason: `Overdue by ${daysOverdue} days`,
-        status: "Unpaid",
-        createdDate: returnDate,
-      };
+        if (!record) return;
 
-      set((state) => ({
-        fines: [...state.fines, fine],
-      }));
-    }
+        const returnDate = new Date();
+        const isOverdue = returnDate > record.dueDate;
 
-    set((state) => ({
-      borrowRecords: state.borrowRecords.map((r) =>
-        r.id === borrowRecordId
-          ? { ...r, returnDate, status: "Returned" as const }
-          : r,
-      ),
-      books: state.books.map((b) =>
-        b.id === record.bookId
-          ? { ...b, availableCopies: b.availableCopies + 1 }
-          : b,
-      ),
-    }));
-  },
+        // Calculate fine if overdue
+        if (isOverdue) {
+          const daysOverdue = Math.floor(
+            (returnDate.getTime() - record.dueDate.getTime()) /
+              (1000 * 60 * 60 * 24),
+          );
+          const fineAmount = daysOverdue * 1; // $1 per day
 
-  // Reservations
-  reserveBook: (bookId, readerId) => {
-    const state = get();
-    const existingReservations = state.reservations.filter(
-      (r) => r.bookId === bookId && r.status === "Pending",
-    );
+          const fine: Fine = {
+            id: Date.now().toString(),
+            borrowRecordId: record.id,
+            readerId: record.readerId,
+            amount: fineAmount,
+            reason: `Overdue by ${daysOverdue} days`,
+            status: "Unpaid",
+            createdDate: returnDate,
+          };
 
-    const reservation: Reservation = {
-      id: Date.now().toString(),
-      bookId,
-      readerId,
-      reservationDate: new Date(),
-      status: "Pending",
-      queuePosition: existingReservations.length + 1,
-    };
+          set((state) => ({
+            fines: [...state.fines, fine],
+          }));
+        }
 
-    set((state) => ({
-      reservations: [...state.reservations, reservation],
-    }));
-  },
+        set((state) => ({
+          borrowRecords: state.borrowRecords.map((r) =>
+            r.id === borrowRecordId
+              ? { ...r, returnDate, status: "Returned" as const }
+              : r,
+          ),
+          books: state.books.map((b) =>
+            b.id === record.bookId
+              ? { ...b, availableCopies: b.availableCopies + 1 }
+              : b,
+          ),
+        }));
+      },
 
-  cancelReservation: (reservationId) =>
-    set((state) => ({
-      reservations: state.reservations.map((r) =>
-        r.id === reservationId ? { ...r, status: "Cancelled" as const } : r,
-      ),
-    })),
+      // Reservations
+      reserveBook: (bookId, readerId) => {
+        const state = get();
+        const existingReservations = state.reservations.filter(
+          (r) => r.bookId === bookId && r.status === "Pending",
+        );
 
-  // Fines
-  addFine: (fine) => set((state) => ({ fines: [...state.fines, fine] })),
-  payFine: (fineId) =>
-    set((state) => ({
-      fines: state.fines.map((f) =>
-        f.id === fineId
-          ? { ...f, status: "Paid" as const, paidDate: new Date() }
-          : f,
-      ),
-    })),
+        const reservation: Reservation = {
+          id: Date.now().toString(),
+          bookId,
+          readerId,
+          reservationDate: new Date(),
+          status: "Pending",
+          queuePosition: existingReservations.length + 1,
+        };
 
-  // MainDashboard Stats
-  getMainDashboardStats: () => {
-    const state = get();
-    return {
-      totalBooks: state.books.length,
-      activeReaders: state.readers.filter((r) => r.status === "Active").length,
-      borrowedBooks: state.borrowRecords.filter((r) => r.status === "Active")
-        .length,
-      overdueBooks: state.borrowRecords.filter(
-        (r) => r.status === "Active" && new Date() > r.dueDate,
-      ).length,
-      totalFines: state.fines
-        .filter((f) => f.status === "Unpaid")
-        .reduce((sum, f) => sum + f.amount, 0),
-      pendingReservations: state.reservations.filter(
-        (r) => r.status === "Pending",
-      ).length,
-    };
-  },
-}));
+        set((state) => ({
+          reservations: [...state.reservations, reservation],
+        }));
+      },
+
+      cancelReservation: (reservationId) =>
+        set((state) => ({
+          reservations: state.reservations.map((r) =>
+            r.id === reservationId ? { ...r, status: "Cancelled" as const } : r,
+          ),
+        })),
+
+      // Fines
+      addFine: (fine) => set((state) => ({ fines: [...state.fines, fine] })),
+      payFine: (fineId) =>
+        set((state) => ({
+          fines: state.fines.map((f) =>
+            f.id === fineId
+              ? { ...f, status: "Paid" as const, paidDate: new Date() }
+              : f,
+          ),
+        })),
+
+      // MainDashboard Stats
+      getMainDashboardStats: () => {
+        const state = get();
+        return {
+          totalBooks: state.books.length,
+          activeReaders: state.readers.filter((r) => r.status === "Active")
+            .length,
+          borrowedBooks: state.borrowRecords.filter(
+            (r) => r.status === "Active",
+          ).length,
+          overdueBooks: state.borrowRecords.filter(
+            (r) => r.status === "Active" && new Date() > r.dueDate,
+          ).length,
+          totalFines: state.fines
+            .filter((f) => f.status === "Unpaid")
+            .reduce((sum, f) => sum + f.amount, 0),
+          pendingReservations: state.reservations.filter(
+            (r) => r.status === "Pending",
+          ).length,
+        };
+      },
+    }),
+    {
+      name: "liber-auth",
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        currentUser: state.currentUser,
+        authToken: state.authToken,
+      }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        if (isTokenExpired(state.authToken)) {
+          state.logout();
+        }
+      },
+    },
+  ),
+);

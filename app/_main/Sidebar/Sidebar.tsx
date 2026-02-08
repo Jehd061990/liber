@@ -10,6 +10,7 @@ import {
   Typography,
   Chip,
   Collapse,
+  Button,
 } from "@mui/material";
 import {
   Dashboard,
@@ -28,22 +29,35 @@ import {
   PersonAdd,
   History,
   AttachMoney,
+  Logout,
 } from "@mui/icons-material";
 import { useState } from "react";
 import { useLibraryStore } from "@/app/store/libraryStore";
+import { useRouter } from "next/navigation";
 
 export default function Sidebar() {
-  const { currentView, setCurrentView, currentUser, getMainDashboardStats } =
-    useLibraryStore();
+  const {
+    currentView,
+    setCurrentView,
+    currentUser,
+    getMainDashboardStats,
+    logout,
+  } = useLibraryStore();
   const [booksOpen, setBooksOpen] = useState(false);
   const [readersOpen, setReadersOpen] = useState(false);
   const [borrowingOpen, setBorrowingOpen] = useState(false);
+  const router = useRouter();
 
   const stats = getMainDashboardStats();
   const userRole = currentUser?.role || "Reader";
 
   const handleNavigation = (view: string) => {
     setCurrentView(view);
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.replace("/login");
   };
 
   return (
@@ -531,6 +545,23 @@ export default function Sidebar() {
           bgcolor: "rgba(0,0,0,0.2)",
         }}
       >
+        <Button
+          fullWidth
+          startIcon={<Logout />}
+          onClick={handleLogout}
+          sx={{
+            mb: 2,
+            color: "white",
+            border: "1px solid rgba(255,255,255,0.2)",
+            textTransform: "none",
+            "&:hover": {
+              borderColor: "rgba(255,255,255,0.35)",
+              bgcolor: "rgba(255,255,255,0.08)",
+            },
+          }}
+        >
+          Logout
+        </Button>
         <Typography
           variant="caption"
           sx={{ color: "rgba(255,255,255,0.6)", display: "block", mb: 0.5 }}

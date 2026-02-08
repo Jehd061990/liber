@@ -19,6 +19,8 @@ import {
 } from "@mui/material";
 import { Close, CloudUpload, QrCode } from "@mui/icons-material";
 import { useState } from "react";
+import { useForm, Controller } from "react-hook-form";
+import apiClient from "@/app/lib/apiClient";
 // import { useLibraryStore } from "../store/libraryStore";
 // import { Book } from "../types/library";
 import { useLibraryStore } from "@/app/store/libraryStore";
@@ -29,27 +31,39 @@ interface AddBookDialogProps {
   onClose: () => void;
 }
 
+type BookFormValues = Omit<Book, "id">;
+
 export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
   const { addBook } = useLibraryStore();
 
-  const [formData, setFormData] = useState({
-    isbn: "",
-    title: "",
-    author: "",
-    publisher: "",
-    category: "",
-    genre: "",
-    shelfLocation: "",
-    totalCopies: 1,
-    availableCopies: 1,
-    status: "Available" as const,
-    coverImage: "",
-    barcode: "",
-    qrCode: "",
-  });
-
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [apiError, setApiError] = useState<string | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
+
+  const {
+    control,
+    register,
+    handleSubmit,
+    setValue,
+    reset,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<BookFormValues>({
+    defaultValues: {
+      isbn: "",
+      title: "",
+      author: "",
+      publisher: "",
+      category: "",
+      genre: "",
+      shelfLocation: "",
+      totalCopies: 1,
+      availableCopies: 1,
+      status: "Available",
+      coverImage: "",
+      barcode: "",
+      qrCode: "",
+    },
+  });
 
   const categories = [
     "Fiction",
@@ -89,21 +103,6 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
 
   const bookStatuses = ["Available", "Borrowed", "Reserved", "Lost"];
 
-  const handleChange = (field: string, value: any) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-    // Clear error when user starts typing
-    if (errors[field]) {
-      setErrors((prev) => {
-        const newErrors = { ...prev };
-        delete newErrors[field];
-        return newErrors;
-      });
-    }
-  };
-
   const handleCoverUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -111,97 +110,48 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
       // Create a preview URL
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData((prev) => ({
-          ...prev,
-          coverImage: reader.result as string,
-        }));
+        setValue("coverImage", reader.result as string, {
+          shouldDirty: true,
+        });
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const validateForm = () => {
-    const newErrors: Record<string, string> = {};
+  const onSubmit = async (data: BookFormValues) => {
+    setApiError(null);
+    try {
+      const response = await apiClient.post("/books", data);
+      const created = response.data?.data ?? response.data;
 
-    if (!formData.isbn.trim()) {
-      newErrors.isbn = "ISBN is required";
-    }
-    if (!formData.title.trim()) {
-      newErrors.title = "Title is required";
-    }
-    if (!formData.author.trim()) {
-      newErrors.author = "Author is required";
-    }
-    if (!formData.publisher.trim()) {
-      newErrors.publisher = "Publisher is required";
-    }
-    if (!formData.category) {
-      newErrors.category = "Category is required";
-    }
-    if (!formData.genre) {
-      newErrors.genre = "Genre is required";
-    }
-    if (!formData.shelfLocation.trim()) {
-      newErrors.shelfLocation = "Shelf location is required";
-    }
-    if (formData.totalCopies < 1) {
-      newErrors.totalCopies = "Total copies must be at least 1";
-    }
-    if (formData.availableCopies < 0) {
-      newErrors.availableCopies = "Available copies cannot be negative";
-    }
-    if (formData.availableCopies > formData.totalCopies) {
-      newErrors.availableCopies = "Available copies cannot exceed total copies";
-    }
+      const newBook: Book = {
+        id: created?.id ?? created?._id ?? Date.now().toString(),
+        isbn: created?.isbn ?? data.isbn,
+        title: created?.title ?? data.title,
+        author: created?.author ?? data.author,
+        publisher: created?.publisher ?? data.publisher,
+        category: created?.category ?? data.category,
+        genre: created?.genre ?? data.genre,
+        shelfLocation: created?.shelfLocation ?? data.shelfLocation,
+        totalCopies: created?.totalCopies ?? data.totalCopies,
+        availableCopies: created?.availableCopies ?? data.availableCopies,
+        status: created?.status ?? data.status,
+        coverImage: created?.coverImage ?? data.coverImage ?? undefined,
+        barcode: created?.barcode ?? data.barcode ?? undefined,
+        qrCode: created?.qrCode ?? data.qrCode ?? undefined,
+      };
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = () => {
-    if (!validateForm()) {
-      return;
+      addBook(newBook);
+      handleClose();
+    } catch (error) {
+      setApiError("Failed to add book. Please try again.");
     }
-
-    const newBook: Book = {
-      id: Date.now().toString(),
-      isbn: formData.isbn,
-      title: formData.title,
-      author: formData.author,
-      publisher: formData.publisher,
-      category: formData.category,
-      genre: formData.genre,
-      shelfLocation: formData.shelfLocation,
-      totalCopies: formData.totalCopies,
-      availableCopies: formData.availableCopies,
-      status: formData.status,
-      coverImage: formData.coverImage || undefined,
-      barcode: formData.barcode || undefined,
-      qrCode: formData.qrCode || undefined,
-    };
-
-    addBook(newBook);
-    handleClose();
   };
 
   const handleClose = () => {
     // Reset form
-    setFormData({
-      isbn: "",
-      title: "",
-      author: "",
-      publisher: "",
-      category: "",
-      genre: "",
-      shelfLocation: "",
-      totalCopies: 1,
-      availableCopies: 1,
-      status: "Available",
-      coverImage: "",
-      barcode: "",
-      qrCode: "",
-    });
-    setErrors({});
+    reset();
+    setApiError(null);
     setCoverFile(null);
     onClose();
   };
@@ -243,11 +193,10 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
               fullWidth
               required
               label="ISBN"
-              value={formData.isbn}
-              onChange={(e) => handleChange("isbn", e.target.value)}
-              error={!!errors.isbn}
-              helperText={errors.isbn}
               placeholder="978-1234567890"
+              error={!!errors.isbn}
+              helperText={errors.isbn?.message}
+              {...register("isbn", { required: "ISBN is required" })}
             />
           </Grid>
 
@@ -255,17 +204,19 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
           <Grid size={{ xs: 12, sm: 6 }}>
             <FormControl fullWidth required>
               <InputLabel>Book Status</InputLabel>
-              <Select
-                value={formData.status}
-                label="Book Status"
-                onChange={(e) => handleChange("status", e.target.value)}
-              >
-                {bookStatuses.map((status) => (
-                  <MenuItem key={status} value={status}>
-                    {status}
-                  </MenuItem>
-                ))}
-              </Select>
+              <Controller
+                name="status"
+                control={control}
+                render={({ field }) => (
+                  <Select {...field} label="Book Status">
+                    {bookStatuses.map((status) => (
+                      <MenuItem key={status} value={status}>
+                        {status}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                )}
+              />
             </FormControl>
           </Grid>
 
@@ -275,11 +226,10 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
               fullWidth
               required
               label="Title"
-              value={formData.title}
-              onChange={(e) => handleChange("title", e.target.value)}
-              error={!!errors.title}
-              helperText={errors.title}
               placeholder="Enter book title"
+              error={!!errors.title}
+              helperText={errors.title?.message}
+              {...register("title", { required: "Title is required" })}
             />
           </Grid>
 
@@ -289,11 +239,10 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
               fullWidth
               required
               label="Author"
-              value={formData.author}
-              onChange={(e) => handleChange("author", e.target.value)}
-              error={!!errors.author}
-              helperText={errors.author}
               placeholder="Author name"
+              error={!!errors.author}
+              helperText={errors.author?.message}
+              {...register("author", { required: "Author is required" })}
             />
           </Grid>
 
@@ -303,11 +252,10 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
               fullWidth
               required
               label="Publisher"
-              value={formData.publisher}
-              onChange={(e) => handleChange("publisher", e.target.value)}
-              error={!!errors.publisher}
-              helperText={errors.publisher}
               placeholder="Publisher name"
+              error={!!errors.publisher}
+              helperText={errors.publisher?.message}
+              {...register("publisher", { required: "Publisher is required" })}
             />
           </Grid>
 
@@ -315,19 +263,22 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
           <Grid size={{ xs: 12, sm: 6 }}>
             <FormControl fullWidth required error={!!errors.category}>
               <InputLabel>Category</InputLabel>
-              <Select
-                value={formData.category}
-                label="Category"
-                onChange={(e) => handleChange("category", e.target.value)}
-              >
-                {categories.map((cat) => (
-                  <MenuItem key={cat} value={cat}>
-                    {cat}
-                  </MenuItem>
-                ))}
-              </Select>
+              <Controller
+                name="category"
+                control={control}
+                rules={{ required: "Category is required" }}
+                render={({ field }) => (
+                  <Select {...field} label="Category">
+                    {categories.map((cat) => (
+                      <MenuItem key={cat} value={cat}>
+                        {cat}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                )}
+              />
               {errors.category && (
-                <FormHelperText>{errors.category}</FormHelperText>
+                <FormHelperText>{errors.category.message}</FormHelperText>
               )}
             </FormControl>
           </Grid>
@@ -336,18 +287,23 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
           <Grid size={{ xs: 12, sm: 6 }}>
             <FormControl fullWidth required error={!!errors.genre}>
               <InputLabel>Genre</InputLabel>
-              <Select
-                value={formData.genre}
-                label="Genre"
-                onChange={(e) => handleChange("genre", e.target.value)}
-              >
-                {genres.map((genre) => (
-                  <MenuItem key={genre} value={genre}>
-                    {genre}
-                  </MenuItem>
-                ))}
-              </Select>
-              {errors.genre && <FormHelperText>{errors.genre}</FormHelperText>}
+              <Controller
+                name="genre"
+                control={control}
+                rules={{ required: "Genre is required" }}
+                render={({ field }) => (
+                  <Select {...field} label="Genre">
+                    {genres.map((genre) => (
+                      <MenuItem key={genre} value={genre}>
+                        {genre}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                )}
+              />
+              {errors.genre && (
+                <FormHelperText>{errors.genre.message}</FormHelperText>
+              )}
             </FormControl>
           </Grid>
 
@@ -357,11 +313,12 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
               fullWidth
               required
               label="Shelf Location"
-              value={formData.shelfLocation}
-              onChange={(e) => handleChange("shelfLocation", e.target.value)}
-              error={!!errors.shelfLocation}
-              helperText={errors.shelfLocation || "e.g., A-12, B-05"}
               placeholder="A-12"
+              error={!!errors.shelfLocation}
+              helperText={errors.shelfLocation?.message || "e.g., A-12, B-05"}
+              {...register("shelfLocation", {
+                required: "Shelf location is required",
+              })}
             />
           </Grid>
 
@@ -372,13 +329,14 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
               required
               type="number"
               label="Total Copies"
-              value={formData.totalCopies}
-              onChange={(e) =>
-                handleChange("totalCopies", parseInt(e.target.value) || 0)
-              }
               error={!!errors.totalCopies}
-              helperText={errors.totalCopies}
+              helperText={errors.totalCopies?.message}
               inputProps={{ min: 1 }}
+              {...register("totalCopies", {
+                required: "Total copies must be at least 1",
+                min: { value: 1, message: "Total copies must be at least 1" },
+                valueAsNumber: true,
+              })}
             />
           </Grid>
 
@@ -389,13 +347,24 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
               required
               type="number"
               label="Available Copies"
-              value={formData.availableCopies}
-              onChange={(e) =>
-                handleChange("availableCopies", parseInt(e.target.value) || 0)
-              }
               error={!!errors.availableCopies}
-              helperText={errors.availableCopies}
+              helperText={errors.availableCopies?.message}
               inputProps={{ min: 0 }}
+              {...register("availableCopies", {
+                required: "Available copies cannot be negative",
+                min: {
+                  value: 0,
+                  message: "Available copies cannot be negative",
+                },
+                validate: (value) => {
+                  const total = watch("totalCopies") ?? 0;
+                  return (
+                    value <= total ||
+                    "Available copies cannot exceed total copies"
+                  );
+                },
+                valueAsNumber: true,
+              })}
             />
           </Grid>
 
@@ -436,7 +405,7 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
           </Grid>
 
           {/* Cover Preview */}
-          {formData.coverImage && (
+          {watch("coverImage") && (
             <Grid size={{ xs: 12, sm: 6 }}>
               <Box
                 sx={{
@@ -450,7 +419,7 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
                 }}
               >
                 <img
-                  src={formData.coverImage}
+                  src={watch("coverImage") as string}
                   alt="Cover preview"
                   style={{
                     maxWidth: "100%",
@@ -467,9 +436,8 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
             <TextField
               fullWidth
               label="Barcode"
-              value={formData.barcode}
-              onChange={(e) => handleChange("barcode", e.target.value)}
               placeholder="Enter barcode number"
+              {...register("barcode")}
             />
           </Grid>
 
@@ -478,8 +446,6 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
             <TextField
               fullWidth
               label="QR Code"
-              value={formData.qrCode}
-              onChange={(e) => handleChange("qrCode", e.target.value)}
               placeholder="Enter QR code data"
               InputProps={{
                 endAdornment: (
@@ -488,9 +454,15 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
                   </IconButton>
                 ),
               }}
+              {...register("qrCode")}
             />
           </Grid>
         </Grid>
+        {apiError && (
+          <Typography sx={{ mt: 2 }} color="error">
+            {apiError}
+          </Typography>
+        )}
       </DialogContent>
 
       <DialogActions
@@ -504,8 +476,9 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
           Cancel
         </Button>
         <Button
-          onClick={handleSubmit}
+          onClick={handleSubmit(onSubmit)}
           variant="contained"
+          disabled={isSubmitting}
           sx={{
             bgcolor: "#3498db",
             "&:hover": {
@@ -513,7 +486,7 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
             },
           }}
         >
-          Add Book
+          {isSubmitting ? "Adding..." : "Add Book"}
         </Button>
       </DialogActions>
     </Dialog>
