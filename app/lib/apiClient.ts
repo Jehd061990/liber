@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosHeaders } from "axios";
 import { useLibraryStore } from "@/app/store/libraryStore";
 
 const apiClient = axios.create({
@@ -8,10 +8,16 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use((config) => {
   const token = useLibraryStore.getState().authToken;
   if (token) {
-    config.headers = {
-      ...config.headers,
-      Authorization: `Bearer ${token}`,
-    };
+    if (!config.headers) {
+      config.headers = new AxiosHeaders();
+    }
+
+    if (config.headers instanceof AxiosHeaders) {
+      config.headers.set("Authorization", `Bearer ${token}`);
+    } else {
+      (config.headers as Record<string, string>).Authorization =
+        `Bearer ${token}`;
+    }
   }
   return config;
 });
