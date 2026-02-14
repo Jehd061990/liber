@@ -25,16 +25,23 @@ import apiClient from "@/app/lib/apiClient";
 // import { Book } from "../types/library";
 import { useLibraryStore } from "@/app/store/libraryStore";
 import { Book } from "@/app/types/library";
+import { useEffect } from "react";
 
 interface AddBookDialogProps {
   open: boolean;
   onClose: () => void;
+  bookToEdit?: Book | null;
 }
 
 type BookFormValues = Omit<Book, "id">;
 
-export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
-  const { addBook } = useLibraryStore();
+export default function AddBookDialog({
+  open,
+  onClose,
+  bookToEdit,
+}: AddBookDialogProps) {
+  const { addBook, updateBook } = useLibraryStore();
+  const editMode = Boolean(bookToEdit);
 
   const [apiError, setApiError] = useState<string | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -118,33 +125,84 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
     }
   };
 
+  useEffect(() => {
+    if (bookToEdit && open) {
+      // Populate form with existing book data
+      reset({
+        isbn: bookToEdit.isbn,
+        title: bookToEdit.title,
+        author: bookToEdit.author,
+        publisher: bookToEdit.publisher,
+        category: bookToEdit.category,
+        genre: bookToEdit.genre,
+        shelfLocation: bookToEdit.shelfLocation,
+        totalCopies: bookToEdit.totalCopies,
+        availableCopies: bookToEdit.availableCopies,
+        status: bookToEdit.status,
+        coverImage: bookToEdit.coverImage || "",
+        barcode: bookToEdit.barcode || "",
+        qrCode: bookToEdit.qrCode || "",
+      });
+    }
+  }, [bookToEdit, open, reset]);
+
   const onSubmit = async (data: BookFormValues) => {
     setApiError(null);
     try {
-      const response = await apiClient.post("/books", data);
-      const created = response.data?.data ?? response.data;
+      if (editMode && bookToEdit) {
+        // Update existing book
+        const response = await apiClient.put(`/books/${bookToEdit.id}`, data);
+        const updated = response.data?.data ?? response.data;
 
-      const newBook: Book = {
-        id: created?.id ?? created?._id ?? Date.now().toString(),
-        isbn: created?.isbn ?? data.isbn,
-        title: created?.title ?? data.title,
-        author: created?.author ?? data.author,
-        publisher: created?.publisher ?? data.publisher,
-        category: created?.category ?? data.category,
-        genre: created?.genre ?? data.genre,
-        shelfLocation: created?.shelfLocation ?? data.shelfLocation,
-        totalCopies: created?.totalCopies ?? data.totalCopies,
-        availableCopies: created?.availableCopies ?? data.availableCopies,
-        status: created?.status ?? data.status,
-        coverImage: created?.coverImage ?? data.coverImage ?? undefined,
-        barcode: created?.barcode ?? data.barcode ?? undefined,
-        qrCode: created?.qrCode ?? data.qrCode ?? undefined,
-      };
+        const updatedBook: Book = {
+          id: bookToEdit.id,
+          isbn: updated?.isbn ?? data.isbn,
+          title: updated?.title ?? data.title,
+          author: updated?.author ?? data.author,
+          publisher: updated?.publisher ?? data.publisher,
+          category: updated?.category ?? data.category,
+          genre: updated?.genre ?? data.genre,
+          shelfLocation: updated?.shelfLocation ?? data.shelfLocation,
+          totalCopies: updated?.totalCopies ?? data.totalCopies,
+          availableCopies: updated?.availableCopies ?? data.availableCopies,
+          status: updated?.status ?? data.status,
+          coverImage: updated?.coverImage ?? data.coverImage ?? undefined,
+          barcode: updated?.barcode ?? data.barcode ?? undefined,
+          qrCode: updated?.qrCode ?? data.qrCode ?? undefined,
+        };
 
-      addBook(newBook);
+        updateBook(updatedBook.id, updatedBook);
+      } else {
+        // Create new book
+        const response = await apiClient.post("/books", data);
+        const created = response.data?.data ?? response.data;
+
+        const newBook: Book = {
+          id: created?.id ?? created?._id ?? Date.now().toString(),
+          isbn: created?.isbn ?? data.isbn,
+          title: created?.title ?? data.title,
+          author: created?.author ?? data.author,
+          publisher: created?.publisher ?? data.publisher,
+          category: created?.category ?? data.category,
+          genre: created?.genre ?? data.genre,
+          shelfLocation: created?.shelfLocation ?? data.shelfLocation,
+          totalCopies: created?.totalCopies ?? data.totalCopies,
+          availableCopies: created?.availableCopies ?? data.availableCopies,
+          status: created?.status ?? data.status,
+          coverImage: created?.coverImage ?? data.coverImage ?? undefined,
+          barcode: created?.barcode ?? data.barcode ?? undefined,
+          qrCode: created?.qrCode ?? data.qrCode ?? undefined,
+        };
+
+        addBook(newBook);
+      }
       handleClose();
     } catch (error) {
-      setApiError("Failed to add book. Please try again.");
+      setApiError(
+        editMode
+          ? "Failed to update book. Please try again."
+          : "Failed to add book. Please try again.",
+      );
     }
   };
 
@@ -178,7 +236,7 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
         }}
       >
         <Typography variant="h5" sx={{ fontWeight: 600 }}>
-          Add New Book
+          {editMode ? "Edit Book" : "Add New Book"}
         </Typography>
         <IconButton onClick={handleClose} size="small">
           <Close />
@@ -486,7 +544,13 @@ export default function AddBookDialog({ open, onClose }: AddBookDialogProps) {
             },
           }}
         >
-          {isSubmitting ? "Adding..." : "Add Book"}
+          {isSubmitting
+            ? editMode
+              ? "Updating..."
+              : "Adding..."
+            : editMode
+              ? "Update Book"
+              : "Add Book"}
         </Button>
       </DialogActions>
     </Dialog>

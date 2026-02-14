@@ -18,6 +18,7 @@ import {
   Chip,
   Divider,
   Grid,
+  FormHelperText,
 } from "@mui/material";
 import {
   Close,
@@ -26,12 +27,20 @@ import {
   Person,
   Warning,
 } from "@mui/icons-material";
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useLibraryStore } from "@/app/store/libraryStore";
+import { Controller, useForm } from "react-hook-form";
 
 interface BorrowBookDialogProps {
   open: boolean;
   onClose: () => void;
+}
+
+interface BorrowBookFormValues {
+  readerId: string;
+  bookId: string;
+  borrowDate: string;
+  dueDate: string;
 }
 
 export default function BorrowBookDialog({
@@ -39,13 +48,29 @@ export default function BorrowBookDialog({
   onClose,
 }: BorrowBookDialogProps) {
   const { books, readers, borrowBook, borrowRecords } = useLibraryStore();
-  const [selectedBookId, setSelectedBookId] = useState("");
-  const [selectedReaderId, setSelectedReaderId] = useState("");
-  const [borrowDate, setBorrowDate] = useState(
-    new Date().toISOString().split("T")[0],
-  );
-  const [dueDate, setDueDate] = useState("");
-  const [error, setError] = useState("");
+  const today = new Date().toISOString().split("T")[0];
+  const {
+    control,
+    handleSubmit,
+    reset,
+    setValue,
+    setError,
+    clearErrors,
+    watch,
+    formState: { errors },
+  } = useForm<BorrowBookFormValues>({
+    defaultValues: {
+      readerId: "",
+      bookId: "",
+      borrowDate: today,
+      dueDate: "",
+    },
+  });
+
+  const selectedReaderId = watch("readerId");
+  const selectedBookId = watch("bookId");
+  const borrowDate = watch("borrowDate");
+  const dueDate = watch("dueDate");
 
   // Get available books only
   const availableBooks = books.filter((book) => book.availableCopies > 0);
@@ -69,61 +94,78 @@ export default function BorrowBookDialog({
       const bDate = new Date(borrowDate);
       const due = new Date(bDate);
       due.setDate(due.getDate() + selectedReader.borrowDuration);
-      setDueDate(due.toISOString().split("T")[0]);
+      setValue("dueDate", due.toISOString().split("T")[0], {
+        shouldDirty: true,
+        shouldValidate: false,
+      });
+    } else {
+      setValue("dueDate", "", { shouldDirty: true, shouldValidate: false });
     }
-  }, [selectedReader, borrowDate]);
+  }, [selectedReader, borrowDate, setValue]);
 
   // Validate borrowing rules
   const validateBorrowing = () => {
-    setError("");
+    clearErrors("root");
 
     if (!selectedBookId) {
-      setError("Please select a book");
+      setError("bookId", { type: "manual", message: "Please select a book" });
       return false;
     }
 
     if (!selectedReaderId) {
-      setError("Please select a reader");
+      setError("readerId", {
+        type: "manual",
+        message: "Please select a reader",
+      });
       return false;
     }
 
     if (!selectedReader) {
-      setError("Selected reader not found");
+      setError("root", {
+        type: "manual",
+        message: "Selected reader not found",
+      });
       return false;
     }
 
     // Check if reader has reached max books limit
     if (readerBorrowedCount >= selectedReader.maxBooks) {
-      setError(
-        `Reader has reached maximum borrowing limit of ${selectedReader.maxBooks} books`,
-      );
+      setError("root", {
+        type: "manual",
+        message: `Reader has reached maximum borrowing limit of ${selectedReader.maxBooks} books`,
+      });
       return false;
     }
 
     // Check if book is available
     if (!selectedBook || selectedBook.availableCopies <= 0) {
-      setError("Selected book is not available");
+      setError("root", {
+        type: "manual",
+        message: "Selected book is not available",
+      });
       return false;
     }
 
     return true;
   };
 
-  const handleBorrow = () => {
+  const handleBorrow = handleSubmit(() => {
     if (!validateBorrowing()) {
       return;
     }
 
     borrowBook(selectedBookId, selectedReaderId);
     handleClose();
-  };
+  });
 
   const handleClose = () => {
-    setSelectedBookId("");
-    setSelectedReaderId("");
-    setBorrowDate(new Date().toISOString().split("T")[0]);
-    setDueDate("");
-    setError("");
+    reset({
+      readerId: "",
+      bookId: "",
+      borrowDate: today,
+      dueDate: "",
+    });
+    clearErrors();
     onClose();
   };
 
@@ -162,60 +204,73 @@ export default function BorrowBookDialog({
       <DialogContent sx={{ mt: 3 }}>
         <Grid container spacing={3}>
           {/* Error Alert */}
-          {error && (
+          {errors.root?.message && (
             <Grid size={{ xs: 12 }}>
-              <Alert severity="error" onClose={() => setError("")}>
-                {error}
+              <Alert severity="error" onClose={() => clearErrors("root")}>
+                {errors.root.message}
               </Alert>
             </Grid>
           )}
 
           {/* Select Reader */}
           <Grid size={{ xs: 12 }}>
-            <FormControl fullWidth required>
-              <InputLabel>Select Reader</InputLabel>
-              <Select
-                value={selectedReaderId}
-                label="Select Reader"
-                onChange={(e) => setSelectedReaderId(e.target.value)}
-                startAdornment={
-                  <Person sx={{ mr: 1, color: "text.secondary" }} />
-                }
-              >
-                <MenuItem value="">
-                  <em>Choose a reader</em>
-                </MenuItem>
-                {activeReaders.map((reader) => (
-                  <MenuItem key={reader.id} value={reader.id}>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        width: "100%",
-                      }}
-                    >
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          {reader.name}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {reader.readerId} | {reader.membershipType}
-                        </Typography>
-                      </Box>
-                      <Chip
-                        label={`${readerBorrowedCount}/${reader.maxBooks}`}
-                        size="small"
-                        color={
-                          readerBorrowedCount >= reader.maxBooks
-                            ? "error"
-                            : "success"
-                        }
-                      />
-                    </Box>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Controller
+              name="readerId"
+              control={control}
+              rules={{ required: "Please select a reader" }}
+              render={({ field }) => (
+                <FormControl fullWidth required error={!!errors.readerId}>
+                  <InputLabel>Select Reader</InputLabel>
+                  <Select
+                    {...field}
+                    label="Select Reader"
+                    startAdornment={
+                      <Person sx={{ mr: 1, color: "text.secondary" }} />
+                    }
+                  >
+                    <MenuItem value="">
+                      <em>Choose a reader</em>
+                    </MenuItem>
+                    {activeReaders.map((reader) => (
+                      <MenuItem key={reader.id} value={reader.id}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            width: "100%",
+                          }}
+                        >
+                          <Box>
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 500 }}
+                            >
+                              {reader.name}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              {reader.readerId} | {reader.membershipType}
+                            </Typography>
+                          </Box>
+                          <Chip
+                            label={`${readerBorrowedCount}/${reader.maxBooks}`}
+                            size="small"
+                            color={
+                              readerBorrowedCount >= reader.maxBooks
+                                ? "error"
+                                : "success"
+                            }
+                          />
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  <FormHelperText>{errors.readerId?.message}</FormHelperText>
+                </FormControl>
+              )}
+            />
           </Grid>
 
           {/* Reader Info Card */}
@@ -279,48 +334,61 @@ export default function BorrowBookDialog({
 
           {/* Select Book */}
           <Grid size={{ xs: 12 }}>
-            <FormControl fullWidth required>
-              <InputLabel>Select Book</InputLabel>
-              <Select
-                value={selectedBookId}
-                label="Select Book"
-                onChange={(e) => setSelectedBookId(e.target.value)}
-                disabled={!selectedReaderId}
-                startAdornment={
-                  <LibraryBooks sx={{ mr: 1, color: "text.secondary" }} />
-                }
-              >
-                <MenuItem value="">
-                  <em>Choose a book</em>
-                </MenuItem>
-                {availableBooks.map((book) => (
-                  <MenuItem key={book.id} value={book.id}>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        width: "100%",
-                      }}
-                    >
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          {book.title}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {book.author} | ISBN: {book.isbn}
-                        </Typography>
-                      </Box>
-                      <Chip
-                        label={`${book.availableCopies} available`}
-                        size="small"
-                        color="success"
-                        variant="outlined"
-                      />
-                    </Box>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Controller
+              name="bookId"
+              control={control}
+              rules={{ required: "Please select a book" }}
+              render={({ field }) => (
+                <FormControl fullWidth required error={!!errors.bookId}>
+                  <InputLabel>Select Book</InputLabel>
+                  <Select
+                    {...field}
+                    label="Select Book"
+                    disabled={!selectedReaderId}
+                    startAdornment={
+                      <LibraryBooks sx={{ mr: 1, color: "text.secondary" }} />
+                    }
+                  >
+                    <MenuItem value="">
+                      <em>Choose a book</em>
+                    </MenuItem>
+                    {availableBooks.map((book) => (
+                      <MenuItem key={book.id} value={book.id}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            width: "100%",
+                          }}
+                        >
+                          <Box>
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 500 }}
+                            >
+                              {book.title}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              {book.author} | ISBN: {book.isbn}
+                            </Typography>
+                          </Box>
+                          <Chip
+                            label={`${book.availableCopies} available`}
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                          />
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  <FormHelperText>{errors.bookId?.message}</FormHelperText>
+                </FormControl>
+              )}
+            />
           </Grid>
 
           {/* Book Info Card */}
@@ -385,46 +453,61 @@ export default function BorrowBookDialog({
 
           {/* Borrow Date */}
           <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField
-              fullWidth
-              required
-              type="date"
-              label="Borrow Date"
-              value={borrowDate}
-              onChange={(e) => setBorrowDate(e.target.value)}
-              InputLabelProps={{
-                shrink: true,
-              }}
-              InputProps={{
-                startAdornment: (
-                  <CalendarToday sx={{ mr: 1, color: "text.secondary" }} />
-                ),
-              }}
+            <Controller
+              name="borrowDate"
+              control={control}
+              rules={{ required: "Borrow date is required" }}
+              render={({ field }) => (
+                <TextField
+                  {...field}
+                  fullWidth
+                  required
+                  type="date"
+                  label="Borrow Date"
+                  error={!!errors.borrowDate}
+                  helperText={errors.borrowDate?.message}
+                  InputLabelProps={{
+                    shrink: true,
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <CalendarToday sx={{ mr: 1, color: "text.secondary" }} />
+                    ),
+                  }}
+                />
+              )}
             />
           </Grid>
 
           {/* Due Date (Auto-calculated) */}
           <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField
-              fullWidth
-              required
-              type="date"
-              label="Due Date (Auto-calculated)"
-              value={dueDate}
-              InputLabelProps={{
-                shrink: true,
-              }}
-              InputProps={{
-                readOnly: true,
-                startAdornment: (
-                  <CalendarToday sx={{ mr: 1, color: "text.secondary" }} />
-                ),
-              }}
-              helperText={
-                selectedReader
-                  ? `Auto-calculated based on ${selectedReader.borrowDuration} days duration`
-                  : "Select a reader to auto-calculate"
-              }
+            <Controller
+              name="dueDate"
+              control={control}
+              render={({ field }) => (
+                <TextField
+                  {...field}
+                  fullWidth
+                  required
+                  type="date"
+                  label="Due Date (Auto-calculated)"
+                  value={dueDate}
+                  InputLabelProps={{
+                    shrink: true,
+                  }}
+                  InputProps={{
+                    readOnly: true,
+                    startAdornment: (
+                      <CalendarToday sx={{ mr: 1, color: "text.secondary" }} />
+                    ),
+                  }}
+                  helperText={
+                    selectedReader
+                      ? `Auto-calculated based on ${selectedReader.borrowDuration} days duration`
+                      : "Select a reader to auto-calculate"
+                  }
+                />
+              )}
             />
           </Grid>
 
