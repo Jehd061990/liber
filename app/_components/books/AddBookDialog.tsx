@@ -151,14 +151,22 @@ export default function AddBookDialog({
     try {
       if (editMode && bookToEdit) {
         // Update existing book
-        const response = await apiClient.put(`/books/${bookToEdit.id}`, data);
+        const payload = {
+          ...data,
+          bookAuthor: data.author,
+        };
+        const response = await apiClient.put(
+          `/books/${bookToEdit.id}`,
+          payload,
+        );
         const updated = response.data?.data ?? response.data;
 
         const updatedBook: Book = {
           id: bookToEdit.id,
           isbn: updated?.isbn ?? data.isbn,
           title: updated?.title ?? data.title,
-          author: updated?.author ?? data.author,
+          author: updated?.bookAuthor ?? updated?.author ?? data.author,
+          bookAuthor: updated?.bookAuthor ?? updated?.author ?? data.author,
           publisher: updated?.publisher ?? data.publisher,
           category: updated?.category ?? data.category,
           genre: updated?.genre ?? data.genre,
@@ -174,14 +182,19 @@ export default function AddBookDialog({
         updateBook(updatedBook.id, updatedBook);
       } else {
         // Create new book
-        const response = await apiClient.post("/books", data);
+        const payload = {
+          ...data,
+          bookAuthor: data.author,
+        };
+        const response = await apiClient.post("/books", payload);
         const created = response.data?.data ?? response.data;
 
         const newBook: Book = {
           id: created?.id ?? created?._id ?? Date.now().toString(),
           isbn: created?.isbn ?? data.isbn,
           title: created?.title ?? data.title,
-          author: created?.author ?? data.author,
+          author: created?.bookAuthor ?? created?.author ?? data.author,
+          bookAuthor: created?.bookAuthor ?? created?.author ?? data.author,
           publisher: created?.publisher ?? data.publisher,
           category: created?.category ?? data.category,
           genre: created?.genre ?? data.genre,

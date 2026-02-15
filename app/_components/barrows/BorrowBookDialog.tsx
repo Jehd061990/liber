@@ -27,9 +27,12 @@ import {
   Person,
   Warning,
 } from "@mui/icons-material";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLibraryStore } from "@/app/store/libraryStore";
 import { Controller, useForm } from "react-hook-form";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import apiClient from "@/app/lib/apiClient";
+import { Book, Reader } from "@/app/types/library";
 
 interface BorrowBookDialogProps {
   open: boolean;
@@ -41,14 +44,87 @@ interface BorrowBookFormValues {
   bookId: string;
   borrowDate: string;
   dueDate: string;
+  notes?: string;
 }
 
 export default function BorrowBookDialog({
   open,
   onClose,
 }: BorrowBookDialogProps) {
-  const { books, readers, borrowBook, borrowRecords } = useLibraryStore();
+  const { borrowRecords, authToken } = useLibraryStore();
+  const queryClient = useQueryClient();
   const today = new Date().toISOString().split("T")[0];
+
+  // Fetch books from API
+  const { data: booksData } = useQuery({
+    queryKey: ["books", authToken],
+    queryFn: async () => {
+      const response = await apiClient.get("/books");
+      return response.data?.data ?? response.data;
+    },
+    enabled: Boolean(authToken) && open,
+  });
+
+  // Fetch readers from API
+  const { data: readersData } = useQuery({
+    queryKey: ["readers", authToken],
+    queryFn: async () => {
+      const response = await apiClient.get("/readers");
+      return response.data?.data ?? response.data;
+    },
+    enabled: Boolean(authToken) && open,
+  });
+
+  const books = Array.isArray(booksData) ? booksData : (booksData?.books ?? []);
+  const readersRaw = Array.isArray(readersData)
+    ? readersData
+    : (readersData?.readers ?? []);
+
+  // Map API response to match Book interface
+  const mappedBooks = (books as any[]).map((item, index) => {
+    const totalCopies = Number(item?.totalCopies ?? 1);
+    const availableCopies = Number(
+      item?.availableCopies ?? item?.available ?? totalCopies,
+    );
+
+    return {
+      id: item?.id ?? item?._id ?? item?.isbn ?? `${Date.now()}-${index}`,
+      isbn: item?.isbn ?? "",
+      title: item?.title ?? "",
+      author: item?.bookAuthor ?? item?.author ?? "",
+      bookAuthor: item?.bookAuthor ?? item?.author ?? "",
+      publisher: item?.publisher ?? "",
+      category: item?.category ?? "Other",
+      genre: item?.genre ?? "Other",
+      shelfLocation: item?.shelfLocation ?? "",
+      totalCopies: Number.isFinite(totalCopies) ? totalCopies : 1,
+      availableCopies: Number.isFinite(availableCopies) ? availableCopies : 1,
+      status: item?.status ?? "Available",
+      coverImage: item?.coverImage ?? undefined,
+      barcode: item?.barcode ?? undefined,
+      qrCode: item?.qrCode ?? undefined,
+      rating: item?.rating ?? undefined,
+      description: item?.description ?? undefined,
+      publishedYear: item?.publishedYear ?? undefined,
+    } as Book;
+  });
+
+  // Map API response to match Reader interface
+  const readers = (readersRaw as any[]).map((item, index) => ({
+    id: item?.id ?? item?._id ?? `${Date.now()}-${index}`,
+    readerId: item?.readerId ?? "",
+    studentId: item?.studentId ?? "",
+    name: item?.fullName ?? item?.name ?? "",
+    email: item?.email ?? "",
+    phone: item?.phoneNumber ?? item?.phone ?? "",
+    membershipType: item?.membershipType ?? "Student",
+    status: item?.status ?? "Active",
+    registrationDate: item?.registrationDate
+      ? new Date(item.registrationDate)
+      : new Date(),
+    maxBooks: item?.maxBooks ?? 5,
+    borrowDuration: item?.borrowDuration ?? 14,
+  }));
   const {
     control,
     handleSubmit,
@@ -64,6 +140,36 @@ export default function BorrowBookDialog({
       bookId: "",
       borrowDate: today,
       dueDate: "",
+      notes: "",
+    },
+  });
+
+  const borrowBookMutation = useMutation({
+    mutationFn: async (data: BorrowBookFormValues) => {
+      const payload = {
+        reader: data.readerId,
+        book: data.bookId,
+        borrowDate: new Date(data.borrowDate).toISOString(),
+        dueDate: new Date(data.dueDate).toISOString(),
+        status: "Borrowed",
+        notes: data.notes || "",
+      };
+      const response = await apiClient.post("/borrows", payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["borrows"] });
+      handleClose();
+      alert("Book borrowed successfully!");
+    },
+    onError: (error: any) => {
+      console.error("Failed to borrow book:", error);
+      setError("root", {
+        type: "manual",
+        message:
+          error?.response?.data?.message ||
+          "Failed to borrow book. Please try again.",
+      });
     },
   });
 
@@ -73,14 +179,18 @@ export default function BorrowBookDialog({
   const dueDate = watch("dueDate");
 
   // Get available books only
-  const availableBooks = books.filter((book) => book.availableCopies > 0);
+  const availableBooks = mappedBooks.filter(
+    (book: Book) => book.availableCopies > 0,
+  );
 
   // Get active readers only
-  const activeReaders = readers.filter((reader) => reader.status === "Active");
+  const activeReaders = readers.filter(
+    (reader: Reader) => reader.status === "Active",
+  );
 
   // Get selected book and reader details
-  const selectedBook = books.find((b) => b.id === selectedBookId);
-  const selectedReader = readers.find((r) => r.id === selectedReaderId);
+  const selectedBook = mappedBooks.find((b: Book) => b.id === selectedBookId);
+  const selectedReader = readers.find((r: Reader) => r.id === selectedReaderId);
 
   // Calculate reader's current borrowed books count
   const readerBorrowedCount = borrowRecords.filter(
@@ -90,10 +200,23 @@ export default function BorrowBookDialog({
 
   // Auto-calculate due date based on reader's membership type
   useEffect(() => {
-    if (selectedReader && borrowDate) {
+    if (selectedReader && borrowDate && selectedReader.borrowDuration) {
       const bDate = new Date(borrowDate);
+      // Check if borrowDate is valid
+      if (isNaN(bDate.getTime())) {
+        setValue("dueDate", "", { shouldDirty: true, shouldValidate: false });
+        return;
+      }
+
       const due = new Date(bDate);
       due.setDate(due.getDate() + selectedReader.borrowDuration);
+
+      // Check if calculated due date is valid
+      if (isNaN(due.getTime())) {
+        setValue("dueDate", "", { shouldDirty: true, shouldValidate: false });
+        return;
+      }
+
       setValue("dueDate", due.toISOString().split("T")[0], {
         shouldDirty: true,
         shouldValidate: false,
@@ -149,13 +272,12 @@ export default function BorrowBookDialog({
     return true;
   };
 
-  const handleBorrow = handleSubmit(() => {
+  const handleBorrow = handleSubmit((data) => {
     if (!validateBorrowing()) {
       return;
     }
 
-    borrowBook(selectedBookId, selectedReaderId);
-    handleClose();
+    borrowBookMutation.mutate(data);
   });
 
   const handleClose = () => {
@@ -164,6 +286,7 @@ export default function BorrowBookDialog({
       bookId: "",
       borrowDate: today,
       dueDate: "",
+      notes: "",
     });
     clearErrors();
     onClose();
@@ -213,7 +336,7 @@ export default function BorrowBookDialog({
           )}
 
           {/* Select Reader */}
-          <Grid size={{ xs: 12 }}>
+          <Grid size={{ xs: 12 }} sx={{ mt: 3 }}>
             <Controller
               name="readerId"
               control={control}
@@ -231,41 +354,49 @@ export default function BorrowBookDialog({
                     <MenuItem value="">
                       <em>Choose a reader</em>
                     </MenuItem>
-                    {activeReaders.map((reader) => (
-                      <MenuItem key={reader.id} value={reader.id}>
-                        <Box
-                          sx={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            width: "100%",
-                          }}
-                        >
-                          <Box>
-                            <Typography
-                              variant="body2"
-                              sx={{ fontWeight: 500 }}
-                            >
-                              {reader.name}
-                            </Typography>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              {reader.readerId} | {reader.membershipType}
-                            </Typography>
+                    {activeReaders.map((reader: Reader) => {
+                      const readerBorrowCount = borrowRecords.filter(
+                        (record) =>
+                          record.readerId === reader.id &&
+                          record.status === "Active",
+                      ).length;
+
+                      return (
+                        <MenuItem key={reader.id} value={reader.id}>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              width: "100%",
+                            }}
+                          >
+                            <Box>
+                              <Typography
+                                variant="body2"
+                                sx={{ fontWeight: 500 }}
+                              >
+                                {reader.name}
+                              </Typography>
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                {reader.readerId} | {reader.membershipType}
+                              </Typography>
+                            </Box>
+                            <Chip
+                              label={`${readerBorrowCount}/${reader.maxBooks}`}
+                              size="small"
+                              color={
+                                readerBorrowCount >= reader.maxBooks
+                                  ? "error"
+                                  : "success"
+                              }
+                            />
                           </Box>
-                          <Chip
-                            label={`${readerBorrowedCount}/${reader.maxBooks}`}
-                            size="small"
-                            color={
-                              readerBorrowedCount >= reader.maxBooks
-                                ? "error"
-                                : "success"
-                            }
-                          />
-                        </Box>
-                      </MenuItem>
-                    ))}
+                        </MenuItem>
+                      );
+                    })}
                   </Select>
                   <FormHelperText>{errors.readerId?.message}</FormHelperText>
                 </FormControl>
@@ -352,7 +483,7 @@ export default function BorrowBookDialog({
                     <MenuItem value="">
                       <em>Choose a book</em>
                     </MenuItem>
-                    {availableBooks.map((book) => (
+                    {availableBooks.map((book: Book) => (
                       <MenuItem key={book.id} value={book.id}>
                         <Box
                           sx={{
@@ -511,6 +642,25 @@ export default function BorrowBookDialog({
             />
           </Grid>
 
+          {/* Notes */}
+          <Grid size={{ xs: 12 }}>
+            <Controller
+              name="notes"
+              control={control}
+              render={({ field }) => (
+                <TextField
+                  {...field}
+                  fullWidth
+                  multiline
+                  rows={2}
+                  label="Notes (Optional)"
+                  placeholder="Add any notes about this borrowing..."
+                  helperText="Optional notes about special conditions or requests"
+                />
+              )}
+            />
+          </Grid>
+
           {/* Borrowing Rules Info */}
           <Grid size={{ xs: 12 }}>
             <Box
@@ -568,7 +718,9 @@ export default function BorrowBookDialog({
         <Button
           onClick={handleBorrow}
           variant="contained"
-          disabled={!selectedBookId || !selectedReaderId}
+          disabled={
+            !selectedBookId || !selectedReaderId || borrowBookMutation.isPending
+          }
           sx={{
             bgcolor: "#3498db",
             "&:hover": {
@@ -576,7 +728,7 @@ export default function BorrowBookDialog({
             },
           }}
         >
-          Borrow Book
+          {borrowBookMutation.isPending ? "Borrowing..." : "Borrow Book"}
         </Button>
       </DialogActions>
     </Dialog>

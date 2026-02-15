@@ -18,6 +18,14 @@ import {
   Menu,
   MenuItem,
   Avatar,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  Grid,
 } from "@mui/material";
 import {
   Add,
@@ -27,17 +35,98 @@ import {
   MoreVert,
   FilterList,
   PersonAdd,
+  Visibility,
 } from "@mui/icons-material";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLibraryStore } from "@/app/store/libraryStore";
 import AddReaderDialog from "./AddReaderDialog";
+import ReaderDetailsDialog from "./ReaderDetailsDialog";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import apiClient from "@/app/lib/apiClient";
+import { Reader } from "@/app/types/library";
+
+interface ReaderFilters {
+  readerId?: string;
+  studentId?: string;
+  fullName?: string;
+  email?: string;
+  phoneNumber?: string;
+  membershipType?: string;
+  status?: string;
+}
 
 export default function ReadersManagement() {
-  const { readers, deleteReader } = useLibraryStore();
+  const { readers, deleteReader, setReaders, authToken } = useLibraryStore();
   const [openAddDialog, setOpenAddDialog] = useState(false);
+  const [editingReader, setEditingReader] = useState<Reader | null>(null);
+  const [openDetailsDialog, setOpenDetailsDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedReader, setSelectedReader] = useState<string | null>(null);
+  const [openFilterDialog, setOpenFilterDialog] = useState(false);
+  const [filters, setFilters] = useState<ReaderFilters>({});
+  const queryClient = useQueryClient();
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["readers", authToken, searchQuery, filters],
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+
+      if (searchQuery) {
+        params.search = searchQuery;
+      }
+      if (filters.readerId) {
+        params.readerId = filters.readerId;
+      }
+      if (filters.studentId) {
+        params.studentId = filters.studentId;
+      }
+      if (filters.fullName) {
+        params.fullName = filters.fullName;
+      }
+      if (filters.email) {
+        params.email = filters.email;
+      }
+      if (filters.phoneNumber) {
+        params.phoneNumber = filters.phoneNumber;
+      }
+      if (filters.membershipType) {
+        params.membershipType = filters.membershipType;
+      }
+      if (filters.status) {
+        params.status = filters.status;
+      }
+
+      const response = await apiClient.get("/readers", { params });
+      return response.data?.data ?? response.data;
+    },
+    enabled: Boolean(authToken),
+  });
+
+  useEffect(() => {
+    if (!data) return;
+
+    const list = Array.isArray(data) ? data : (data?.readers ?? []);
+    const mapped = (list as any[]).map(
+      (item, index) =>
+        ({
+          id: item?.id ?? item?._id ?? `${Date.now()}-${index}`,
+          readerId: item?.readerId ?? "",
+          studentId: item?.studentId ?? "",
+          name: item?.fullName ?? item?.name ?? "",
+          email: item?.email ?? "",
+          phone: item?.phoneNumber ?? item?.phone ?? "",
+          membershipType: item?.membershipType ?? "Student",
+          status: item?.status ?? "Active",
+          registrationDate:
+            item?.registrationDate ?? item?.createdAt ?? new Date(),
+          maxBooks: item?.maxBooks ?? 3,
+          borrowDuration: item?.borrowDuration ?? 14,
+        }) as Reader,
+    );
+
+    setReaders(mapped);
+  }, [data, setReaders]);
 
   const handleMenuOpen = (
     event: React.MouseEvent<HTMLElement>,
@@ -52,20 +141,54 @@ export default function ReadersManagement() {
     setSelectedReader(null);
   };
 
+  const handleEdit = () => {
+    const reader = readers.find((r) => r.id === selectedReader);
+    if (reader) {
+      setEditingReader(reader);
+      setOpenAddDialog(true);
+    }
+    handleMenuClose();
+  };
+
+  const handleCloseDialog = () => {
+    setOpenAddDialog(false);
+    setEditingReader(null);
+  };
+
+  const handleViewDetails = () => {
+    console.log("Opening reader details for ID:", selectedReader);
+    setOpenDetailsDialog(true);
+    setAnchorEl(null);
+  };
+
+  const deleteMutation = useMutation({
+    mutationFn: async (readerId: string) => {
+      const response = await apiClient.delete(`/readers/${readerId}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["readers"] });
+      handleMenuClose();
+    },
+    onError: (error: any) => {
+      console.error("Failed to delete reader:", error);
+      alert(
+        error?.response?.data?.message ||
+          "Failed to delete reader. Please try again.",
+      );
+    },
+  });
+
   const handleDelete = () => {
     if (selectedReader) {
-      deleteReader(selectedReader);
-      handleMenuClose();
+      if (confirm("Are you sure you want to delete this reader?")) {
+        deleteMutation.mutate(selectedReader);
+      }
     }
   };
 
-  const filteredReaders = readers.filter(
-    (reader) =>
-      reader.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      reader.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      reader.readerId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      reader.studentId?.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  // Readers are already filtered by the API
+  const filteredReaders = readers;
 
   const getStatusColor = (status: string) => {
     return status === "Active" ? "success" : "error";
@@ -146,9 +269,18 @@ export default function ReadersManagement() {
           <Button
             variant="outlined"
             startIcon={<FilterList />}
+            onClick={() => setOpenFilterDialog(true)}
             sx={{ minWidth: 120 }}
           >
             Filters
+            {Object.keys(filters).length > 0 && (
+              <Chip
+                label={Object.keys(filters).length}
+                size="small"
+                sx={{ ml: 1, height: 20, minWidth: 20 }}
+                color="primary"
+              />
+            )}
           </Button>
         </Box>
       </Paper>
@@ -209,11 +341,35 @@ export default function ReadersManagement() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredReaders.length === 0 ? (
+            {!authToken ? (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <Typography variant="body2" color="text.secondary">
-                    {searchQuery
+                    Please log in to load readers.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : isLoading ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Loading readers...
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="error">
+                    Failed to load readers. Please try again.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : filteredReaders.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {searchQuery || Object.keys(filters).length > 0
                       ? "No readers found matching your search"
                       : 'No readers registered yet. Click "Register Reader" to get started.'}
                   </Typography>
@@ -309,7 +465,11 @@ export default function ReadersManagement() {
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleMenuClose}>
+        <MenuItem onClick={handleViewDetails}>
+          <Visibility fontSize="small" sx={{ mr: 1 }} />
+          View Details
+        </MenuItem>
+        <MenuItem onClick={handleEdit}>
           <Edit fontSize="small" sx={{ mr: 1 }} />
           Edit
         </MenuItem>
@@ -319,11 +479,153 @@ export default function ReadersManagement() {
         </MenuItem>
       </Menu>
 
-      {/* Add Reader Dialog */}
+      {/* Add/Edit Reader Dialog */}
       <AddReaderDialog
         open={openAddDialog}
-        onClose={() => setOpenAddDialog(false)}
+        onClose={handleCloseDialog}
+        reader={editingReader}
       />
+
+      {/* Reader Details Dialog */}
+      <ReaderDetailsDialog
+        open={openDetailsDialog}
+        onClose={() => {
+          setOpenDetailsDialog(false);
+          setSelectedReader(null);
+        }}
+        readerId={selectedReader}
+      />
+
+      {/* Filter Dialog */}
+      <Dialog
+        open={openFilterDialog}
+        onClose={() => setOpenFilterDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Filter Readers</DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12 }}>
+              <TextField
+                fullWidth
+                label="Reader ID"
+                value={filters.readerId || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, readerId: e.target.value })
+                }
+                placeholder="Filter by reader ID"
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <TextField
+                fullWidth
+                label="Student ID"
+                value={filters.studentId || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, studentId: e.target.value })
+                }
+                placeholder="Filter by student ID"
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <TextField
+                fullWidth
+                label="Full Name"
+                value={filters.fullName || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, fullName: e.target.value })
+                }
+                placeholder="Filter by full name"
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <TextField
+                fullWidth
+                label="Email"
+                value={filters.email || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, email: e.target.value })
+                }
+                placeholder="Filter by email"
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <TextField
+                fullWidth
+                label="Phone Number"
+                value={filters.phoneNumber || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, phoneNumber: e.target.value })
+                }
+                placeholder="Filter by phone number"
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <FormControl fullWidth>
+                <InputLabel>Membership Type</InputLabel>
+                <Select
+                  value={filters.membershipType || ""}
+                  label="Membership Type"
+                  onChange={(e) =>
+                    setFilters({ ...filters, membershipType: e.target.value })
+                  }
+                  native
+                >
+                  <option value=""></option>
+                  <option value="Student">Student</option>
+                  <option value="Teacher">Teacher</option>
+                  <option value="Staff">Staff</option>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <FormControl fullWidth>
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={filters.status || ""}
+                  label="Status"
+                  onChange={(e) =>
+                    setFilters({ ...filters, status: e.target.value })
+                  }
+                  native
+                >
+                  <option value=""></option>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                  <option value="Suspended">Suspended</option>
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setFilters({});
+              setOpenFilterDialog(false);
+            }}
+            color="inherit"
+          >
+            Clear All
+          </Button>
+          <Button onClick={() => setOpenFilterDialog(false)} color="inherit">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => setOpenFilterDialog(false)}
+            variant="contained"
+            sx={{
+              bgcolor: "#27ae60",
+              "&:hover": {
+                bgcolor: "#229954",
+              },
+            }}
+          >
+            Apply Filters
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

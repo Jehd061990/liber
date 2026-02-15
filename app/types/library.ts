@@ -3,7 +3,8 @@ export interface Book {
   id: string;
   isbn: string;
   title: string;
-  author: string;
+  author: string; // Display name (frontend)
+  bookAuthor?: string; // API field name
   publisher: string;
   category: string;
   genre: string;
@@ -15,6 +16,8 @@ export interface Book {
   barcode?: string;
   qrCode?: string;
   rating?: number;
+  description?: string;
+  publishedYear?: number;
 }
 
 // Reader/Member Management Types

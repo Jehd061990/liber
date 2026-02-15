@@ -16,6 +16,15 @@ import {
   InputAdornment,
   IconButton,
   Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Grid,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from "@mui/material";
 import {
   Search,
@@ -23,53 +32,197 @@ import {
   Warning,
   History,
   LibraryBooks,
+  FilterList,
+  Delete,
+  Visibility,
 } from "@mui/icons-material";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLibraryStore } from "@/app/store/libraryStore";
 import BorrowBookDialog from "./BorrowBookDialog";
+import BorrowDetailsDialog from "./BorrowDetailsDialog";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import apiClient from "@/app/lib/apiClient";
+
+interface BorrowFilters {
+  reader?: string;
+  book?: string;
+  status?: string;
+  borrowDateFrom?: string;
+  borrowDateTo?: string;
+  dueDateFrom?: string;
+  dueDateTo?: string;
+}
 
 export default function BorrowingManagement() {
-  const { borrowRecords, books, readers, returnBook } = useLibraryStore();
+  const { authToken } = useLibraryStore();
   const [searchQuery, setSearchQuery] = useState("");
   const [openBorrowDialog, setOpenBorrowDialog] = useState(false);
+  const [openDetailsDialog, setOpenDetailsDialog] = useState(false);
+  const [selectedBorrowId, setSelectedBorrowId] = useState<string | null>(null);
+  const [openFilterDialog, setOpenFilterDialog] = useState(false);
+  const [filters, setFilters] = useState<BorrowFilters>({});
   const [filter, setFilter] = useState<
     "all" | "active" | "overdue" | "returned"
   >("active");
+  const queryClient = useQueryClient();
 
-  // Get book and reader details for each record
-  const enrichedRecords = borrowRecords.map((record) => {
-    const book = books.find((b) => b.id === record.bookId);
-    const reader = readers.find((r) => r.id === record.readerId);
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["borrows", authToken, searchQuery, filters, filter],
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+
+      if (searchQuery) {
+        params.search = searchQuery;
+      }
+      if (filters.reader) {
+        params.reader = filters.reader;
+      }
+      if (filters.book) {
+        params.book = filters.book;
+      }
+
+      // Map the quick filter to status
+      if (filter === "active") {
+        params.status = "Borrowed";
+      } else if (filter === "returned") {
+        params.status = "Returned";
+      } else if (filter === "overdue") {
+        params.status = "Overdue";
+      } else if (filters.status) {
+        params.status = filters.status;
+      }
+
+      if (filters.borrowDateFrom) {
+        params.borrowDateFrom = filters.borrowDateFrom;
+      }
+      if (filters.borrowDateTo) {
+        params.borrowDateTo = filters.borrowDateTo;
+      }
+      if (filters.dueDateFrom) {
+        params.dueDateFrom = filters.dueDateFrom;
+      }
+      if (filters.dueDateTo) {
+        params.dueDateTo = filters.dueDateTo;
+      }
+
+      const response = await apiClient.get("/borrows", { params });
+      return response.data?.data ?? response.data;
+    },
+    enabled: Boolean(authToken),
+  });
+
+  const borrowRecords = Array.isArray(data) ? data : (data?.borrows ?? []);
+
+  // Get book and reader details for each record - they should come from API
+  const enrichedRecords = borrowRecords.map((record: any) => {
     const isOverdue =
-      record.status === "Active" && new Date() > new Date(record.dueDate);
+      (record.status === "Borrowed" || record.status === "Active") &&
+      new Date() > new Date(record.dueDate);
 
     return {
       ...record,
-      book,
-      reader,
+      book: record.book || { title: "Unknown Book", author: "Unknown" },
+      reader: record.reader || {
+        name: "Unknown Reader",
+        readerId: "N/A",
+        membershipType: "N/A",
+      },
       isOverdue,
+      // Normalize status
+      status: record.status === "Borrowed" ? "Active" : record.status,
     };
   });
 
-  // Filter records
-  const filteredRecords = enrichedRecords.filter((record) => {
-    const matchesSearch =
-      record.book?.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      record.reader?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      record.reader?.readerId.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredRecords = enrichedRecords;
 
-    if (filter === "active") {
-      return record.status === "Active" && matchesSearch;
-    } else if (filter === "overdue") {
-      return record.isOverdue && matchesSearch;
-    } else if (filter === "returned") {
-      return record.status === "Returned" && matchesSearch;
-    }
-    return matchesSearch;
+  const returnBookMutation = useMutation({
+    mutationFn: async (record: any) => {
+      const payload = {
+        reader: record.reader?.id || record.reader?._id || record.readerId,
+        book: record.book?.id || record.book?._id || record.bookId,
+        borrowDate: new Date(record.borrowDate).toISOString(),
+        dueDate: new Date(record.dueDate).toISOString(),
+        returnDate: new Date().toISOString(),
+        status: "Returned",
+        notes: record.notes || "Book returned in good condition",
+      };
+      const response = await apiClient.put(
+        `/borrows/${record.id || record._id}`,
+        payload,
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["borrows"] });
+      alert("Book returned successfully!");
+    },
+    onError: (error: any) => {
+      console.error("Failed to return book:", error);
+      alert(
+        error?.response?.data?.message ||
+          "Failed to return book. Please try again.",
+      );
+    },
   });
 
   const handleReturn = (recordId: string) => {
-    returnBook(recordId);
+    const record = enrichedRecords.find(
+      (r: any) => r.id === recordId || r._id === recordId,
+    );
+    if (!record) {
+      alert("Record not found");
+      return;
+    }
+
+    if (
+      confirm(
+        `Confirm return of "${record.book?.title}" by ${record.reader?.name}?`,
+      )
+    ) {
+      returnBookMutation.mutate(record);
+    }
+  };
+
+  const deleteRecordMutation = useMutation({
+    mutationFn: async (recordId: string) => {
+      const response = await apiClient.delete(`/borrows/${recordId}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["borrows"] });
+      alert("Borrow record deleted successfully!");
+    },
+    onError: (error: any) => {
+      console.error("Failed to delete record:", error);
+      alert(
+        error?.response?.data?.message ||
+          "Failed to delete record. Please try again.",
+      );
+    },
+  });
+
+  const handleDelete = (recordId: string) => {
+    const record = enrichedRecords.find(
+      (r: any) => r.id === recordId || r._id === recordId,
+    );
+    if (!record) {
+      alert("Record not found");
+      return;
+    }
+
+    if (
+      confirm(
+        `Are you sure you want to delete the borrow record for "${record.book?.title}" by ${record.reader?.name}? This action cannot be undone.`,
+      )
+    ) {
+      deleteRecordMutation.mutate(recordId);
+    }
+  };
+
+  const handleViewDetails = (recordId: string) => {
+    console.log("Opening borrow details for ID:", recordId);
+    setSelectedBorrowId(recordId);
+    setOpenDetailsDialog(true);
   };
 
   const getStatusChip = (record: any) => {
@@ -122,9 +275,11 @@ export default function BorrowingManagement() {
 
   // Calculate stats
   const stats = {
-    active: borrowRecords.filter((r) => r.status === "Active").length,
-    overdue: enrichedRecords.filter((r) => r.isOverdue).length,
-    returned: borrowRecords.filter((r) => r.status === "Returned").length,
+    active: borrowRecords.filter(
+      (r: any) => r.status === "Borrowed" || r.status === "Active",
+    ).length,
+    overdue: enrichedRecords.filter((r: any) => r.isOverdue).length,
+    returned: borrowRecords.filter((r: any) => r.status === "Returned").length,
     total: borrowRecords.length,
   };
 
@@ -214,38 +369,54 @@ export default function BorrowingManagement() {
               ),
             }}
           />
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <Button
-              variant={filter === "all" ? "contained" : "outlined"}
-              onClick={() => setFilter("all")}
-              size="small"
-            >
-              All
-            </Button>
-            <Button
-              variant={filter === "active" ? "contained" : "outlined"}
-              onClick={() => setFilter("active")}
-              size="small"
-              color="success"
-            >
-              Active
-            </Button>
-            <Button
-              variant={filter === "overdue" ? "contained" : "outlined"}
-              onClick={() => setFilter("overdue")}
-              size="small"
-              color="error"
-            >
-              Overdue
-            </Button>
-            <Button
-              variant={filter === "returned" ? "contained" : "outlined"}
-              onClick={() => setFilter("returned")}
-              size="small"
-            >
-              Returned
-            </Button>
-          </Box>
+          <Button
+            variant="outlined"
+            startIcon={<FilterList />}
+            onClick={() => setOpenFilterDialog(true)}
+            sx={{ minWidth: 120 }}
+          >
+            Filters
+            {Object.keys(filters).length > 0 && (
+              <Chip
+                label={Object.keys(filters).length}
+                size="small"
+                sx={{ ml: 1, height: 20, minWidth: 20 }}
+                color="primary"
+              />
+            )}
+          </Button>
+        </Box>
+        <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
+          <Button
+            variant={filter === "all" ? "contained" : "outlined"}
+            onClick={() => setFilter("all")}
+            size="small"
+          >
+            All
+          </Button>
+          <Button
+            variant={filter === "active" ? "contained" : "outlined"}
+            onClick={() => setFilter("active")}
+            size="small"
+            color="success"
+          >
+            Active
+          </Button>
+          <Button
+            variant={filter === "overdue" ? "contained" : "outlined"}
+            onClick={() => setFilter("overdue")}
+            size="small"
+            color="error"
+          >
+            Overdue
+          </Button>
+          <Button
+            variant={filter === "returned" ? "contained" : "outlined"}
+            onClick={() => setFilter("returned")}
+            size="small"
+          >
+            Returned
+          </Button>
         </Box>
       </Paper>
 
@@ -266,18 +437,42 @@ export default function BorrowingManagement() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredRecords.length === 0 ? (
+            {!authToken ? (
               <TableRow>
                 <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                   <Typography variant="body2" color="text.secondary">
-                    {searchQuery
+                    Please log in to load borrowing records.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : isLoading ? (
+              <TableRow>
+                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Loading borrowing records...
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="error">
+                    Failed to load borrowing records. Please try again.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : filteredRecords.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {searchQuery || Object.keys(filters).length > 0
                       ? "No records found matching your search"
                       : 'No borrowing records yet. Click "Borrow Book" to get started.'}
                   </Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              filteredRecords.map((record) => {
+              filteredRecords.map((record: any) => {
                 const daysInfo = getDaysInfo(record);
                 return (
                   <TableRow key={record.id} hover>
@@ -331,24 +526,58 @@ export default function BorrowingManagement() {
                     </TableCell>
                     <TableCell>{getStatusChip(record)}</TableCell>
                     <TableCell align="center">
-                      {record.status === "Active" && (
-                        <Tooltip title="Return Book">
+                      <Box
+                        sx={{
+                          display: "flex",
+                          gap: 1,
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Tooltip title="View Details">
                           <IconButton
                             size="small"
-                            color="primary"
-                            onClick={() => handleReturn(record.id)}
+                            color="info"
+                            onClick={() =>
+                              handleViewDetails(record.id || record._id)
+                            }
                           >
-                            <CheckCircle />
+                            <Visibility />
                           </IconButton>
                         </Tooltip>
-                      )}
-                      {record.status === "Returned" && (
-                        <Chip
-                          label="Completed"
-                          size="small"
-                          variant="outlined"
-                        />
-                      )}
+                        {record.status === "Active" && (
+                          <Tooltip title="Return Book">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() =>
+                                handleReturn(record.id || record._id)
+                              }
+                              disabled={returnBookMutation.isPending}
+                            >
+                              <CheckCircle />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {record.status === "Returned" && (
+                          <Chip
+                            label="Completed"
+                            size="small"
+                            variant="outlined"
+                          />
+                        )}
+                        <Tooltip title="Delete Record">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() =>
+                              handleDelete(record.id || record._id)
+                            }
+                            disabled={deleteRecordMutation.isPending}
+                          >
+                            <Delete />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 );
@@ -358,11 +587,148 @@ export default function BorrowingManagement() {
         </Table>
       </TableContainer>
 
+      {/* Borrow Details Dialog */}
+      <BorrowDetailsDialog
+        open={openDetailsDialog}
+        onClose={() => {
+          setOpenDetailsDialog(false);
+          setSelectedBorrowId(null);
+        }}
+        borrowId={selectedBorrowId}
+      />
+
       {/* Borrow Book Dialog */}
       <BorrowBookDialog
         open={openBorrowDialog}
         onClose={() => setOpenBorrowDialog(false)}
       />
+
+      {/* Filter Dialog */}
+      <Dialog
+        open={openFilterDialog}
+        onClose={() => setOpenFilterDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Filter Borrowing Records</DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12 }}>
+              <TextField
+                fullWidth
+                label="Reader ID"
+                value={filters.reader || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, reader: e.target.value })
+                }
+                placeholder="Filter by reader ID"
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <TextField
+                fullWidth
+                label="Book ID"
+                value={filters.book || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, book: e.target.value })
+                }
+                placeholder="Filter by book ID"
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <FormControl fullWidth>
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={filters.status || ""}
+                  label="Status"
+                  onChange={(e) =>
+                    setFilters({ ...filters, status: e.target.value })
+                  }
+                >
+                  <MenuItem value="">All</MenuItem>
+                  <MenuItem value="Borrowed">Borrowed</MenuItem>
+                  <MenuItem value="Returned">Returned</MenuItem>
+                  <MenuItem value="Overdue">Overdue</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                label="Borrow Date From"
+                type="date"
+                value={filters.borrowDateFrom || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, borrowDateFrom: e.target.value })
+                }
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                label="Borrow Date To"
+                type="date"
+                value={filters.borrowDateTo || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, borrowDateTo: e.target.value })
+                }
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                label="Due Date From"
+                type="date"
+                value={filters.dueDateFrom || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, dueDateFrom: e.target.value })
+                }
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                label="Due Date To"
+                type="date"
+                value={filters.dueDateTo || ""}
+                onChange={(e) =>
+                  setFilters({ ...filters, dueDateTo: e.target.value })
+                }
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setFilters({});
+              setOpenFilterDialog(false);
+            }}
+            color="inherit"
+          >
+            Clear All
+          </Button>
+          <Button onClick={() => setOpenFilterDialog(false)} color="inherit">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => setOpenFilterDialog(false)}
+            variant="contained"
+            sx={{
+              bgcolor: "#3498db",
+              "&:hover": {
+                bgcolor: "#2980b9",
+              },
+            }}
+          >
+            Apply Filters
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

@@ -48,8 +48,10 @@ interface LibraryState {
   deleteBook: (id: string) => void;
 
   // Reader Management
+
   addReader: (reader: Reader) => void;
   updateReader: (id: string, reader: Partial<Reader>) => void;
+  setReaders: (readers: Reader[]) => void;
   deleteReader: (id: string) => void;
 
   // Borrowing
@@ -116,6 +118,7 @@ export const useLibraryStore = create<LibraryState>()(
             book.id === id ? { ...book, ...updatedBook } : book,
           ),
         })),
+      setReaders: (readers) => set({ readers }),
       deleteBook: (id) =>
         set((state) => ({
           books: state.books.filter((book) => book.id !== id),

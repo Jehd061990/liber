@@ -33,6 +33,7 @@ import {
   Search,
   MoreVert,
   FilterList,
+  Visibility,
 } from "@mui/icons-material";
 import { useEffect, useState } from "react";
 import { useLibraryStore } from "@/app/store/libraryStore";
@@ -58,6 +59,7 @@ export default function BooksManagement() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedBook, setSelectedBook] = useState<string | null>(null);
   const [openFilterDialog, setOpenFilterDialog] = useState(false);
+  const [openDetailsDialog, setOpenDetailsDialog] = useState(false);
   const [filters, setFilters] = useState<BookFilters>({});
   const queryClient = useQueryClient();
 
@@ -108,7 +110,8 @@ export default function BooksManagement() {
         id: item?.id ?? item?._id ?? item?.isbn ?? `${Date.now()}-${index}`,
         isbn: item?.isbn ?? "",
         title: item?.title ?? "",
-        author: item?.author ?? "",
+        author: item?.bookAuthor ?? item?.author ?? "",
+        bookAuthor: item?.bookAuthor ?? item?.author ?? "",
         publisher: item?.publisher ?? "",
         category: item?.category ?? "Other",
         genre: item?.genre ?? "Other",
@@ -120,6 +123,8 @@ export default function BooksManagement() {
         barcode: item?.barcode ?? undefined,
         qrCode: item?.qrCode ?? undefined,
         rating: item?.rating ?? undefined,
+        description: item?.description ?? undefined,
+        publishedYear: item?.publishedYear ?? undefined,
       } as Book;
     });
 
@@ -175,6 +180,41 @@ export default function BooksManagement() {
       );
     },
   });
+
+  const {
+    data: bookDetails,
+    isLoading: isLoadingDetails,
+    error: detailsError,
+  } = useQuery({
+    queryKey: ["book-details", selectedBook],
+    queryFn: async () => {
+      if (!selectedBook) return null;
+      const response = await apiClient.get(`/books/${selectedBook}`);
+      const rawData =
+        response.data?.data?.book ??
+        response.data?.data ??
+        response.data?.book ??
+        response.data;
+
+      console.log("Book details response:", rawData);
+
+      // Map bookAuthor to author for display
+      const bookData = {
+        ...rawData,
+        author: rawData?.bookAuthor ?? rawData?.author ?? "",
+      };
+
+      return bookData;
+    },
+    enabled: Boolean(selectedBook && openDetailsDialog && authToken),
+  });
+
+  const handleViewDetails = () => {
+    if (selectedBook) {
+      setOpenDetailsDialog(true);
+      setAnchorEl(null); // Close menu but keep selectedBook
+    }
+  };
 
   const handleEdit = () => {
     if (selectedBook) {
@@ -246,7 +286,6 @@ export default function BooksManagement() {
           Add New Book
         </Button>
       </Box>
-
       {/* Search and Filter Bar */}
       <Paper elevation={2} sx={{ p: 2, mb: 3 }}>
         <Box sx={{ display: "flex", gap: 2 }}>
@@ -281,7 +320,6 @@ export default function BooksManagement() {
           </Button>
         </Box>
       </Paper>
-
       {/* Stats Summary */}
       <Box sx={{ display: "flex", gap: 2, mb: 3 }}>
         <Paper elevation={1} sx={{ p: 2, flex: 1 }}>
@@ -317,7 +355,6 @@ export default function BooksManagement() {
           </Typography>
         </Paper>
       </Box>
-
       {/* Books Table */}
       <TableContainer component={Paper} elevation={2}>
         <Table>
@@ -436,13 +473,16 @@ export default function BooksManagement() {
           </TableBody>
         </Table>
       </TableContainer>
-
       {/* Action Menu */}
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
+        <MenuItem onClick={handleViewDetails}>
+          <Visibility fontSize="small" sx={{ mr: 1 }} />
+          View Details
+        </MenuItem>
         <MenuItem onClick={handleEdit}>
           <Edit fontSize="small" sx={{ mr: 1 }} />
           Edit
@@ -452,7 +492,6 @@ export default function BooksManagement() {
           Delete
         </MenuItem>
       </Menu>
-
       {/* Add Book Dialog */}
       <AddBookDialog
         open={openAddDialog}
@@ -462,6 +501,226 @@ export default function BooksManagement() {
         }}
         bookToEdit={bookToEdit}
       />
+      {/* Book Details Dialog */}
+      <Dialog
+        open={openDetailsDialog}
+        onClose={() => {
+          setOpenDetailsDialog(false);
+          setSelectedBook(null);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Book Details</DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {isLoadingDetails ? (
+            <Box sx={{ textAlign: "center", py: 4 }}>
+              <Typography variant="body2" color="text.secondary">
+                Loading book details...
+              </Typography>
+            </Box>
+          ) : bookDetails ? (
+            <Grid container spacing={3}>
+              {bookDetails.coverImage && (
+                <Grid size={{ xs: 12 }} sx={{ textAlign: "center" }}>
+                  <Box
+                    component="img"
+                    src={bookDetails.coverImage}
+                    alt={bookDetails.title}
+                    sx={{
+                      maxWidth: 200,
+                      maxHeight: 300,
+                      objectFit: "cover",
+                      borderRadius: 2,
+                      boxShadow: 2,
+                    }}
+                  />
+                </Grid>
+              )}
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Title
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                  {bookDetails.title}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Typography variant="caption" color="text.secondary">
+                  ISBN
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                  {bookDetails.isbn}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Author
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                  {bookDetails.author}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Publisher
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                  {bookDetails.publisher}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Category
+                </Typography>
+                <Box sx={{ mb: 2 }}>
+                  <Chip label={bookDetails.category} size="small" />
+                </Box>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Genre
+                </Typography>
+                <Box sx={{ mb: 2 }}>
+                  <Chip label={bookDetails.genre} size="small" />
+                </Box>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Shelf Location
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                  {bookDetails.shelfLocation}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Status
+                </Typography>
+                <Box sx={{ mb: 2 }}>
+                  <Chip
+                    label={bookDetails.status}
+                    size="small"
+                    color={getStatusColor(bookDetails.status) as any}
+                  />
+                </Box>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Total Copies
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                  {bookDetails.totalCopies}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Available Copies
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                  {bookDetails.availableCopies}
+                </Typography>
+              </Grid>
+              {bookDetails.barcode && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Barcode
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                    {bookDetails.barcode}
+                  </Typography>
+                </Grid>
+              )}
+              {bookDetails.qrCode && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    QR Code
+                  </Typography>
+                  <Box sx={{ mt: 1 }}>
+                    <Box
+                      component="img"
+                      src={bookDetails.qrCode}
+                      alt="QR Code"
+                      sx={{
+                        width: 100,
+                        height: 100,
+                        objectFit: "contain",
+                      }}
+                    />
+                  </Box>
+                </Grid>
+              )}
+              {bookDetails.description && (
+                <Grid size={{ xs: 12 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Description
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 400, mb: 2 }}>
+                    {bookDetails.description}
+                  </Typography>
+                </Grid>
+              )}
+              {bookDetails.publishedYear && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Published Year
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                    {bookDetails.publishedYear}
+                  </Typography>
+                </Grid>
+              )}
+              {bookDetails.rating && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Rating
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                    {bookDetails.rating} / 5
+                  </Typography>
+                </Grid>
+              )}
+              {(bookDetails.createdAt || bookDetails.createdAt) && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Created At
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                    {new Date(bookDetails.createdAt).toLocaleDateString()}
+                  </Typography>
+                </Grid>
+              )}
+              {bookDetails.updatedAt && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Updated At
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500, mb: 2 }}>
+                    {new Date(bookDetails.updatedAt).toLocaleDateString()}
+                  </Typography>
+                </Grid>
+              )}
+            </Grid>
+          ) : (
+            <Box sx={{ textAlign: "center", py: 4 }}>
+              <Typography variant="body2" color="error">
+                Failed to load book details.
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setOpenDetailsDialog(false);
+              setSelectedBook(null);
+            }}
+            color="inherit"
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Filter Dialog */}
       <Dialog
