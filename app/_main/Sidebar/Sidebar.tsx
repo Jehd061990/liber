@@ -425,7 +425,7 @@ export default function Sidebar() {
         )}
 
         {/* Reservations */}
-        <ListItem disablePadding>
+        {/* <ListItem disablePadding>
           <ListItemButton
             onClick={() => handleNavigation("reservations")}
             sx={{
@@ -458,10 +458,10 @@ export default function Sidebar() {
               />
             )}
           </ListItemButton>
-        </ListItem>
+        </ListItem> */}
 
         {/* Search & Filters */}
-        <ListItem disablePadding>
+        {/* <ListItem disablePadding>
           <ListItemButton
             onClick={() => handleNavigation("search")}
             sx={{
@@ -482,10 +482,10 @@ export default function Sidebar() {
               primaryTypographyProps={{ fontSize: 14, fontWeight: 500 }}
             />
           </ListItemButton>
-        </ListItem>
+        </ListItem> */}
 
         {/* Reports (Admin/Librarian only) */}
-        {(userRole === "Admin" || userRole === "Librarian") && (
+        {/* {(userRole === "Admin" || userRole === "Librarian") && (
           <ListItem disablePadding>
             <ListItemButton
               onClick={() => handleNavigation("reports")}
@@ -508,10 +508,10 @@ export default function Sidebar() {
               />
             </ListItemButton>
           </ListItem>
-        )}
+        )} */}
 
         {/* Settings (Admin only) */}
-        {userRole === "Admin" && (
+        {/* {userRole === "Admin" && (
           <ListItem disablePadding>
             <ListItemButton
               onClick={() => handleNavigation("settings")}
@@ -534,7 +534,7 @@ export default function Sidebar() {
               />
             </ListItemButton>
           </ListItem>
-        )}
+        )} */}
       </List>
 
       {/* Footer Stats */}

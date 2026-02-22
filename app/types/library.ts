@@ -57,7 +57,7 @@ export interface Fine {
   readerId: string;
   amount: number;
   reason: string;
-  status: "Paid" | "Unpaid";
+  status: "Paid" | "Unpaid" | "All";
   createdDate: Date;
   paidDate?: Date;
 }

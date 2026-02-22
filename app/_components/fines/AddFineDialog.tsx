@@ -1,4 +1,4 @@
-"use client";
+// ("use client");
 
 import {
   Dialog,
@@ -17,16 +17,43 @@ import {
   Grid,
 } from "@mui/material";
 import { Close, AttachMoney } from "@mui/icons-material";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLibraryStore } from "@/app/store/libraryStore";
-import { Fine } from "@/app/types/library";
+// Updated Fine interface for fines table
+export interface Fine {
+  _id: string;
+  reader: {
+    _id: string;
+    readerId: string;
+    fullName: string;
+  };
+  type: string;
+  book: any | null;
+  reason: string;
+  amount: number;
+  status: string;
+  createdAt: string;
+  __v?: number;
+  id: string;
+  bookTitle: string | null;
+}
+import apiClient from "@/app/lib/apiClient";
 
 interface AddFineDialogProps {
   open: boolean;
   onClose: () => void;
+  fineToEdit?: any | null;
+  onSave?: () => void;
 }
 
-export default function AddFineDialog({ open, onClose }: AddFineDialogProps) {
+export default function AddFineDialog({
+  open,
+  onClose,
+  fineToEdit = null,
+  onSave,
+}: AddFineDialogProps) {
+  const queryClient = useQueryClient();
   const { addFine, readers } = useLibraryStore();
 
   const [formData, setFormData] = useState({
@@ -35,10 +62,62 @@ export default function AddFineDialog({ open, onClose }: AddFineDialogProps) {
     reason: "",
   });
 
+  // Prefill form when editing
+  useEffect(() => {
+    if (fineToEdit && open) {
+      setFormData({
+        readerId: fineToEdit.readerId || fineToEdit.reader || "",
+        amount: fineToEdit.amount || 0,
+        reason: fineToEdit.reason || "",
+      });
+    } else if (open) {
+      setFormData({ readerId: "", amount: 0, reason: "" });
+    }
+  }, [fineToEdit, open]);
+
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Fetch active readers from backend when dialog opens
+  const { data: apiReaders, isLoading: loadingReaders } = useQuery({
+    queryKey: ["readers", open],
+    queryFn: async () => {
+      const res = await apiClient.get("/readers", {
+        params: { status: "Active" },
+      });
+      return res.data?.data || res.data || [];
+    },
+    enabled: !!open,
+  });
+
+  // Normalize API response to match Reader interface
+  const readersRaw = Array.isArray(apiReaders)
+    ? apiReaders
+    : apiReaders &&
+        typeof apiReaders === "object" &&
+        (apiReaders as any).readers
+      ? (apiReaders as any).readers
+      : [];
+
+  const mappedReaders = (readersRaw as any[]).map((item, index) => ({
+    id: item?.id ?? item?._id ?? `${Date.now()}-${index}`,
+    readerId: item?.readerId ?? "",
+    studentId: item?.studentId ?? "",
+    name: item?.fullName ?? item?.name ?? "",
+    email: item?.email ?? "",
+    phone: item?.phoneNumber ?? item?.phone ?? "",
+    membershipType: item?.membershipType ?? "Student",
+    status: item?.status ?? "Active",
+    registrationDate: item?.registrationDate
+      ? new Date(item.registrationDate)
+      : new Date(),
+    maxBooks: item?.maxBooks ?? 5,
+    borrowDuration: item?.borrowDuration ?? 14,
+  }));
+
   // Get active readers only
-  const activeReaders = readers.filter((reader) => reader.status === "Active");
+  const activeReaders = mappedReaders.filter(
+    (reader: any) => reader.status === "Active",
+  );
 
   const handleChange = (field: string, value: any) => {
     setFormData((prev) => ({
@@ -79,18 +158,44 @@ export default function AddFineDialog({ open, onClose }: AddFineDialogProps) {
       return;
     }
 
-    const newFine: Fine = {
-      id: Date.now().toString(),
-      borrowRecordId: "", // Manual fine, no borrow record
-      readerId: formData.readerId,
-      amount: formData.amount,
-      reason: formData.reason,
-      status: "Unpaid",
-      createdDate: new Date(),
-    };
-
-    addFine(newFine);
-    handleClose();
+    if (fineToEdit && fineToEdit._id) {
+      // Edit mode: PUT
+      const payload: any = {
+        amount: formData.amount,
+        reason: formData.reason,
+        status: fineToEdit.status || "unpaid",
+      };
+      apiClient
+        .put(`/fines/${fineToEdit._id}`, payload)
+        .then(() => {
+          if (onSave) onSave();
+          handleClose();
+        })
+        .catch((err) => {
+          setErrors({
+            root: err?.response?.data?.message || "Failed to update fine",
+          });
+        });
+    } else {
+      // Add mode: POST
+      const payload: any = {
+        reader: formData.readerId,
+        type: "manual",
+        amount: formData.amount,
+        reason: formData.reason,
+      };
+      apiClient
+        .post("/fines", payload)
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["fines"] });
+          handleClose();
+        })
+        .catch((err) => {
+          setErrors({
+            root: err?.response?.data?.message || "Failed to add fine",
+          });
+        });
+    }
   };
 
   const handleClose = () => {
@@ -129,7 +234,7 @@ export default function AddFineDialog({ open, onClose }: AddFineDialogProps) {
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <AttachMoney sx={{ color: "#e74c3c" }} />
           <Typography variant="h5" sx={{ fontWeight: 600 }}>
-            Add Manual Fine
+            {fineToEdit ? "Edit Fine" : "Add Manual Fine"}
           </Typography>
         </Box>
         <IconButton onClick={handleClose} size="small">
@@ -147,22 +252,29 @@ export default function AddFineDialog({ open, onClose }: AddFineDialogProps) {
                 value={formData.readerId}
                 label="Select Reader"
                 onChange={(e) => handleChange("readerId", e.target.value)}
+                disabled={loadingReaders}
               >
                 <MenuItem value="">
                   <em>Choose a reader</em>
                 </MenuItem>
-                {activeReaders.map((reader) => (
-                  <MenuItem key={reader.id} value={reader.id}>
-                    <Box>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {reader.name}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {reader.readerId} | {reader.email}
-                      </Typography>
-                    </Box>
+                {loadingReaders ? (
+                  <MenuItem disabled>
+                    <em>Loading readers...</em>
                   </MenuItem>
-                ))}
+                ) : (
+                  activeReaders.map((reader: any) => (
+                    <MenuItem key={reader.id} value={reader.id}>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          {reader.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {reader.readerId} | {reader.email}
+                        </Typography>
+                      </Box>
+                    </MenuItem>
+                  ))
+                )}
               </Select>
               {errors.readerId && (
                 <Typography variant="caption" color="error" sx={{ mt: 0.5 }}>
@@ -294,7 +406,7 @@ export default function AddFineDialog({ open, onClose }: AddFineDialogProps) {
         <Button
           onClick={handleSubmit}
           variant="contained"
-          disabled={!formData.readerId || formData.amount <= 0}
+          disabled={(!formData.readerId && !fineToEdit) || formData.amount <= 0}
           sx={{
             bgcolor: "#e74c3c",
             "&:hover": {
@@ -302,7 +414,7 @@ export default function AddFineDialog({ open, onClose }: AddFineDialogProps) {
             },
           }}
         >
-          Add Fine
+          {fineToEdit ? "Save Changes" : "Add Fine"}
         </Button>
       </DialogActions>
     </Dialog>

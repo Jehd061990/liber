@@ -1,5 +1,32 @@
 "use client";
 
+import apiClient from "@/app/lib/apiClient";
+import { useLibraryStore } from "@/app/store/libraryStore";
+//  import {
+//   Box,
+//   Typography,
+//   Paper,
+//   Table,
+//   TableBody,
+//   TableCell,
+//   TableContainer,
+//   TableHead,
+//   TableRow,
+//   Button,
+//   TextField,
+//   InputAdornment,
+//   IconButton,
+//   Tooltip,
+//   Dialog,
+//   DialogTitle,
+//   DialogContent,
+//   DialogActions,
+//   Grid,
+//   Menu,
+//   MenuItem,
+//   Chip,
+//   Switch,
+// } from "@mui/material";
 import {
   Box,
   Typography,
@@ -10,7 +37,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Chip,
   Button,
   TextField,
   InputAdornment,
@@ -21,37 +47,137 @@ import {
   DialogContent,
   DialogActions,
   Grid,
+  Menu,
+  MenuItem,
+  Chip,
+  Switch,
 } from "@mui/material";
 import {
-  Search,
   AttachMoney,
   CheckCircle,
-  Warning,
-  Edit,
   Close,
+  Search,
+  Visibility,
+  Edit,
+  Delete,
+  MoreVert,
 } from "@mui/icons-material";
-import { useState } from "react";
-import { useLibraryStore } from "@/app/store/libraryStore";
 import AddFineDialog from "./AddFineDialog";
+import FineDetailsDialog from "./FineDetailsDialog";
+import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+
+// import { useLibraryStore } from "@/app/store/libraryStore";
+// import AddFineDialog from "./AddFineDialog";
+// import FineDetailsDialog from "./FineDetailsDialog";
+// import {
+//   AttachMoney,
+//   CheckCircle,
+//   Close,
+//   Search,
+//   Visibility,
+//   Edit,
+//   Delete,
+//   MoreVert,
+// } from "@mui/icons-material";
 
 export default function FinesManagement() {
-  const { fines, readers, payFine, borrowRecords, books } = useLibraryStore();
+  // State for delete confirmation dialog
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  // --- Dialog and Action Handlers ---
+  const openFineDetails = (fineId: string) => {
+    setSelectedFine(fineId);
+    setEditFine(null);
+    setOpenDetailsDialog(true);
+  };
+
+  const openEditFine = (fineId: string) => {
+    const fine = enrichedFines.find(
+      (f: any) => f._id === fineId || f.id === fineId,
+    );
+    setEditFine(fine);
+    setOpenAddDialog(true);
+  };
+
+  const closeFineDetails = () => {
+    setOpenDetailsDialog(false);
+    setSelectedFine(null);
+  };
+  const { readers, payFine, borrowRecords, books } = useLibraryStore();
   const [searchQuery, setSearchQuery] = useState("");
+  const [status, setStatus] = useState<string>("unpaid");
+  // Only for stats, updated from apiFines
+  const [fines, setFines] = useState<any[]>([]);
   const [openAddDialog, setOpenAddDialog] = useState(false);
   const [openPayDialog, setOpenPayDialog] = useState(false);
   const [selectedFine, setSelectedFine] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "paid" | "unpaid">("unpaid");
+  const [openDetailsDialog, setOpenDetailsDialog] = useState(false);
+  const [editFine, setEditFine] = useState<any | null>(null);
+  const [deletingFineId, setDeletingFineId] = useState<string | null>(null);
+  // For row action menu
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [menuFineId, setMenuFineId] = useState<string | null>(null);
+  const handleMenuOpen = (
+    event: React.MouseEvent<HTMLElement>,
+    fineId: string,
+  ) => {
+    setAnchorEl(event.currentTarget);
+    setMenuFineId(fineId);
+  };
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+    setMenuFineId(null);
+  };
+  // Delete fine handler
+  const handleDeleteFine = async (fineId: string) => {
+    setDeletingFineId(fineId);
+    try {
+      await apiClient.delete(`/fines/${fineId}`);
+      refetch();
+    } catch (err) {
+      // Optionally show error
+      alert("Failed to delete fine");
+    } finally {
+      setDeletingFineId(null);
+    }
+  };
 
-  // Enrich fines with reader details
-  const enrichedFines = fines.map((fine) => {
-    const reader = readers.find((r) => r.id === fine.readerId);
+  // Fetch fines using React Query
+  const {
+    data: apiFines,
+    isLoading: loading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["fines", searchQuery, status],
+    queryFn: async () => {
+      const params: any = {};
+      if (searchQuery) params.search = searchQuery;
+      if (status && status !== "all") params.status = status;
+      const res = await apiClient.get("/fines", { params });
+      return res.data?.data || res.data || [];
+    },
+  });
+
+  // Keep local fines for stats
+  useEffect(() => {
+    if (apiFines) setFines(apiFines);
+  }, [apiFines]);
+
+  // Enrich fines with reader details (use embedded reader if present)
+  const enrichedFines = (apiFines || []).map((fine: any) => {
+    // Use reader from API if present, otherwise fallback to lookup
+    const reader = fine.reader
+      ? fine.reader
+      : readers.find((r) => r.id === fine.readerId);
     const borrowRecord = fine.borrowRecordId
       ? borrowRecords.find((br) => br.id === fine.borrowRecordId)
       : null;
     const book = borrowRecord
       ? books.find((b) => b.id === borrowRecord.bookId)
       : null;
-
     return {
       ...fine,
       reader,
@@ -61,20 +187,8 @@ export default function FinesManagement() {
     };
   });
 
-  // Filter fines
-  const filteredFines = enrichedFines.filter((fine) => {
-    const matchesSearch =
-      fine.reader?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      fine.reader?.readerId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      fine.reason.toLowerCase().includes(searchQuery.toLowerCase());
-
-    if (filter === "paid") {
-      return fine.status === "Paid" && matchesSearch;
-    } else if (filter === "unpaid") {
-      return fine.status === "Unpaid" && matchesSearch;
-    }
-    return matchesSearch;
-  });
+  // No local filtering, API handles it
+  const filteredFines = enrichedFines;
 
   const handlePayment = () => {
     if (selectedFine) {
@@ -102,7 +216,9 @@ export default function FinesManagement() {
       .reduce((sum, f) => sum + f.amount, 0),
   };
 
-  const selectedFineDetails = enrichedFines.find((f) => f.id === selectedFine);
+  const selectedFineDetails = enrichedFines.find(
+    (f: any) => f.id === selectedFine,
+  );
 
   return (
     <Box>
@@ -179,7 +295,7 @@ export default function FinesManagement() {
         <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
           <TextField
             fullWidth
-            placeholder="Search by reader name, reader ID, or reason..."
+            placeholder="Search by reason or reader..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             InputProps={{
@@ -190,31 +306,18 @@ export default function FinesManagement() {
               ),
             }}
           />
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <Button
-              variant={filter === "all" ? "contained" : "outlined"}
-              onClick={() => setFilter("all")}
-              size="small"
-            >
-              All
-            </Button>
-            <Button
-              variant={filter === "unpaid" ? "contained" : "outlined"}
-              onClick={() => setFilter("unpaid")}
-              size="small"
-              color="error"
-            >
-              Unpaid
-            </Button>
-            <Button
-              variant={filter === "paid" ? "contained" : "outlined"}
-              onClick={() => setFilter("paid")}
-              size="small"
-              color="success"
-            >
-              Paid
-            </Button>
-          </Box>
+          <TextField
+            select
+            label="Status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            size="small"
+            sx={{ minWidth: 120 }}
+          >
+            <MenuItem value="all">All</MenuItem>
+            <MenuItem value="unpaid">Unpaid</MenuItem>
+            <MenuItem value="paid">Paid</MenuItem>
+          </TextField>
         </Box>
       </Paper>
 
@@ -236,8 +339,26 @@ export default function FinesManagement() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredFines.length === 0 ? (
-              <TableRow>
+            {loading ? (
+              <TableRow key="loading-row">
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Loading fines...
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : isError ? (
+              <TableRow key="error-row">
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="error">
+                    {error instanceof Error
+                      ? error.message
+                      : "Failed to fetch fines"}
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : filteredFines.length === 0 ? (
+              <TableRow key="empty-row">
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <Typography variant="body2" color="text.secondary">
                     {searchQuery
@@ -247,12 +368,12 @@ export default function FinesManagement() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredFines.map((fine) => (
+              filteredFines.map((fine: any) => (
                 <TableRow key={fine.id} hover>
                   <TableCell>
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {fine.reader?.name || "Unknown Reader"}
+                        {fine.reader?.fullName || "Unknown Reader"}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {fine.reader?.readerId} | {fine.reader?.membershipType}
@@ -306,27 +427,98 @@ export default function FinesManagement() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Chip
-                      label={fine.status}
-                      size="small"
-                      color={fine.status === "Paid" ? "success" : "error"}
+                    <Switch
+                      checked={fine.status === "paid"}
+                      color="success"
+                      onChange={async (e) => {
+                        const newStatus = e.target.checked ? "paid" : "unpaid";
+                        await apiClient.put(`/fines/${fine._id}`, {
+                          amount: fine.amount,
+                          reason: fine.reason,
+                          status: newStatus,
+                        });
+                        refetch();
+                      }}
+                      inputProps={{ "aria-label": "Toggle paid status" }}
                     />
+                    <Typography
+                      variant="caption"
+                      color={
+                        fine.status === "Paid" ? "success.main" : "error.main"
+                      }
+                    >
+                      {fine.status}
+                    </Typography>
                   </TableCell>
                   <TableCell align="center">
-                    {fine.status === "Unpaid" && (
-                      <Tooltip title="Mark as Paid">
-                        <IconButton
-                          size="small"
-                          color="success"
-                          onClick={() => openPaymentDialog(fine.id)}
+                    <IconButton
+                      size="small"
+                      onClick={(e) => handleMenuOpen(e, fine._id)}
+                    >
+                      <span className="material-icons">
+                        <MoreVert />
+                      </span>
+                    </IconButton>
+                    <Menu
+                      anchorEl={anchorEl}
+                      open={Boolean(anchorEl) && menuFineId === fine._id}
+                      onClose={handleMenuClose}
+                      anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                      transformOrigin={{ vertical: "top", horizontal: "right" }}
+                    >
+                      <MenuItem
+                        onClick={() => {
+                          openFineDetails(fine._id);
+                          handleMenuClose();
+                        }}
+                      >
+                        <Visibility fontSize="small" sx={{ mr: 1 }} /> View
+                        Details
+                      </MenuItem>
+                      <MenuItem
+                        onClick={() => {
+                          openEditFine(fine._id);
+                          handleMenuClose();
+                        }}
+                      >
+                        <Edit fontSize="small" sx={{ mr: 1 }} /> Edit
+                      </MenuItem>
+                      <MenuItem
+                        onClick={() => {
+                          setConfirmDeleteId(fine._id);
+                          setOpenDeleteDialog(true);
+                          handleMenuClose();
+                        }}
+                        sx={{ color: "error.main" }}
+                        disabled={deletingFineId === fine._id}
+                      >
+                        <span style={{ display: "flex", alignItems: "center" }}>
+                          <Delete fontSize="small" style={{ marginRight: 8 }} />{" "}
+                          Delete
+                        </span>
+                      </MenuItem>
+
+                      {fine.status === "Unpaid" && (
+                        <MenuItem
+                          onClick={() => {
+                            openPaymentDialog(fine.id);
+                            handleMenuClose();
+                          }}
                         >
-                          <CheckCircle />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {fine.status === "Paid" && (
-                      <Chip label="Completed" size="small" variant="outlined" />
-                    )}
+                          <CheckCircle fontSize="small" sx={{ mr: 1 }} /> Mark
+                          as Paid
+                        </MenuItem>
+                      )}
+                      {fine.status === "Paid" && (
+                        <MenuItem disabled>
+                          <Chip
+                            label="Completed"
+                            size="small"
+                            variant="outlined"
+                          />
+                        </MenuItem>
+                      )}
+                    </Menu>
                   </TableCell>
                 </TableRow>
               ))
@@ -334,6 +526,48 @@ export default function FinesManagement() {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Delete Confirmation Dialog (rendered once at root, after table) */}
+      <Dialog
+        open={openDeleteDialog}
+        onClose={() => {
+          setOpenDeleteDialog(false);
+          setConfirmDeleteId(null);
+        }}
+      >
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this fine? This action cannot be
+            undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setOpenDeleteDialog(false);
+              setConfirmDeleteId(null);
+            }}
+            color="inherit"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={async () => {
+              if (confirmDeleteId) {
+                await handleDeleteFine(confirmDeleteId);
+                setOpenDeleteDialog(false);
+                setConfirmDeleteId(null);
+              }
+            }}
+            color="error"
+            variant="contained"
+            disabled={deletingFineId === confirmDeleteId}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Payment Confirmation Dialog */}
       <Dialog
@@ -367,7 +601,7 @@ export default function FinesManagement() {
                       Reader
                     </Typography>
                     <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                      {selectedFineDetails.reader?.name}
+                      {selectedFineDetails.reader?.fullName}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {selectedFineDetails.reader?.readerId}
@@ -435,10 +669,24 @@ export default function FinesManagement() {
         </DialogActions>
       </Dialog>
 
+      {/* Fine Details Dialog */}
+      <FineDetailsDialog
+        open={openDetailsDialog}
+        onClose={closeFineDetails}
+        fineId={selectedFine}
+        // Optionally, you can pass a prop to force edit mode if editFineId is set
+        // editMode={Boolean(editFineId)}
+      />
+
       {/* Add Fine Dialog */}
       <AddFineDialog
         open={openAddDialog}
-        onClose={() => setOpenAddDialog(false)}
+        onClose={() => {
+          setOpenAddDialog(false);
+          setEditFine(null);
+        }}
+        fineToEdit={editFine}
+        onSave={refetch}
       />
     </Box>
   );
